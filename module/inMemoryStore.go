@@ -3,6 +3,7 @@ package module
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"sync"
 	"time"
@@ -15,7 +16,7 @@ type InMemoryStore struct {
 	data map[string]models.Item
 }
 
-func (s *InMemoryStore) NewInMemoryStore() *InMemoryStore {
+func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
 		data: make(map[string]models.Item),
 	}
@@ -35,13 +36,17 @@ func (s *InMemoryStore) Set(key string, value models.Item) {
 }
 
 func (s *InMemoryStore) Delete (key string) {
-	
+	s.mut.Lock()
+	defer s.mut.Unlock()
+	delete(s.data, key)
 }
 
 func (s *InMemoryStore) GetAll() (map[string]models.Item, bool){
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	return s.data, true
+	copyData := make(map[string]models.Item, len(s.data))
+	maps.Copy(copyData, s.data)
+	return copyData, true
 }
 
 func (s *InMemoryStore) Clean(){
@@ -83,19 +88,38 @@ func (s *InMemoryStore) deleteExpired(){
 
 func (s *InMemoryStore) writeToJson(){
 	s.mut.RLock()
-	defer s.mut.RUnlock()
-	file, err := os.Create("data.json")
+    tempCopy := make(map[string]models.Item, len(s.data))
+    maps.Copy(tempCopy, s.data)
+    s.mut.RUnlock()
+
+	tempPath := "data.json.tmp"
+	finalPath := "data.json"
+
+	file, err := os.Create(tempPath)
 	
 	if err != nil {
-		panic (err)
+		println("Error while opening file")
+		return
 	}
-	
-	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", " ")
 
-	if err := encoder.Encode(s.data); err != nil {
-		panic(err)
+	if err := encoder.Encode(tempCopy); err != nil {
+		file.Close()
+		fmt.Println("error encoding json ", err)
+		return
+	}
+
+	if err := file.Sync(); err != nil {
+		file.Close()
+		println("error syncing ", err)
+		return
+	}
+
+	file.Close()
+
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		fmt.Println("error during atomic rename ", err)
 	}
 }

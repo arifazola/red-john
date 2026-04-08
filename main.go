@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	memoryStore := &module.InMemoryStore{}
+	// memoryStore := &module.InMemoryStore{}
 
-	store := memoryStore.NewInMemoryStore()
+	store := module.NewInMemoryStore()
 
 	SetKey(store,  time.Now().Add(15 * time.Second).UnixNano(), "name 1", "Ari")
 	SetKey(store,  time.Now().Add(17 * time.Second).UnixNano(), "name 2", "Fazola")

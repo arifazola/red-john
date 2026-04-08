@@ -1,34 +1,41 @@
 package main_test
 
 import (
+	"fmt"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/arifazola/red-john/models"
+	"github.com/arifazola/red-john/module"
 )
 
-func TestRace(t *testing.T) {
-	// m := make(map[string]string)
-	// memoryStore := inMemoryStore.InMemoryStore{
-	// 	Data: m,
-	// }
+func TestSetRace(t *testing.T) {
+	store := module.NewInMemoryStore()
 
-	// var wg sync.WaitGroup
-	// wg.Add(3)
+	var wg sync.WaitGroup
+	wg.Add(200)
 
-	// go func ()  {
-	// 	memoryStore.Set("name", "Ari")
-	// 	defer wg.Done()
-	// }()
+	for i := 0; i < 100; i++ {
+		go func ()  {
+			item1 := models.Item{
+				Value: strconv.Itoa(i),
+				ExpiresAt: 0,
+			}
+			store.Set("name", item1)
+			defer wg.Done()
+		}()
+	}
 
-	// go func ()  {
-	// 	memoryStore.Set("name", "Fazoladffd")
-	// 	defer wg.Done()
-	// }()
+	for i := 0; i < 100; i++ {
+		go func ()  {
+			time.Sleep(3 * time.Second)
+			val, _ := store.Get("name")
+			fmt.Println(val)
+			defer wg.Done()
+		}()
+	}
 
-	// go func ()  {
-	// 	time.Sleep(3 * time.Second)
-	// 	val, _ := memoryStore.Get("name")
-	// 	fmt.Println(val)
-	// 	defer wg.Done()
-	// }()
-
-	// wg.Wait()
+	wg.Wait()
 }
