@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
+
+	"github.com/arifazola/red-john/module"
 )
 
-func StartServer() {
+type Server struct {
+	inMemoryStore *module.InMemoryStore
+}
+
+func(server *Server) StartServer() {
 	ln, err := net.Listen("tcp", ":8080")
 
 	if err != nil {
@@ -26,26 +33,11 @@ func StartServer() {
 
 		fmt.Println("connected")
 
-		go handleConnection(conn)
+		go server.handleConnection(conn)
 	}
 }
 
-func handleConnection(connection net.Conn) {
-	// defer connection.Close()
-
-	// buffer := make([]byte, 1024)
-
-	// for {
-	// 	bufferData, err := connection.Read(buffer)
-
-	// 	if err != nil {
-	// 		fmt.Println("error read", err)
-	// 	}
-
-	// 	msg := string(buffer[:bufferData])
-
-	// 	println(msg)
-	// }
+func(server *Server) handleConnection(connection net.Conn) {
 
 	defer connection.Close()
 
@@ -64,7 +56,20 @@ func handleConnection(connection net.Conn) {
 			return
 		}
 
-		println(msg)
+		msg = strings.TrimSpace(msg)
+		if msg == ""{continue}
+
+		commands := module.TextTokenizer(msg)
+
+		commandResult, err := module.CommandRouter(commands, server.inMemoryStore)
+
+		if err != nil {
+			fmt.Println("Command error", err)
+			connection.Write([]byte("ERR " + err.Error() + "\n"))
+			// return
+		} else {
+			connection.Write([]byte(commandResult))
+		}
 	}
 
 }

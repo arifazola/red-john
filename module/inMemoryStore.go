@@ -17,9 +17,11 @@ type InMemoryStore struct {
 }
 
 func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{
+	newInMemoryStore := &InMemoryStore{
 		data: make(map[string]models.Item),
 	}
+	
+	return newInMemoryStore
 }
 
 func (s *InMemoryStore) Get(key string) (models.Item, bool) {
