@@ -9,7 +9,7 @@ import (
 )
 
 func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (string, error) {
-	if role != "" {
+	if role != "" && commands[0] == "SYNC_ME" {
 		return "YOU ARE SYNCED\n", nil
 	}
 	

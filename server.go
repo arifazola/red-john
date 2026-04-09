@@ -7,13 +7,17 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 
+	"github.com/arifazola/red-john/enums"
 	"github.com/arifazola/red-john/module"
 )
 
 type Server struct {
 	inMemoryStore *module.InMemoryStore
 	Addr, LeaderAddr, Role  string
+	followerMut sync.Mutex
+	followers []net.Conn
 }
 
 func(server *Server) StartServer(context context.Context) {
@@ -44,8 +48,12 @@ func(server *Server) StartServer(context context.Context) {
 }
 
 func(server *Server) handleConnection(connection net.Conn) {
-
-	defer connection.Close()
+	shouldCloseConnection := true //flag
+	defer func ()  {
+		if shouldCloseConnection{
+			connection.Close()
+		}
+	}()
 
 	reader := bufio.NewReader(connection)
 
@@ -67,7 +75,19 @@ func(server *Server) handleConnection(connection net.Conn) {
 		msg = strings.TrimSpace(msg)
 		if msg == ""{continue}
 
+		if(msg == "SYNC_ME"){
+			server.followerMut.Lock()
+			defer server.followerMut.Unlock()
+			server.followers = append(server.followers, connection)
+			shouldCloseConnection = false
+			return;
+		}
+
 		commands := module.TextTokenizer(msg)
+
+		if server.Role == enums.RoleLeader && commands[0] == "SET" {
+			server.BroadcastToFollowers(msg) //spawn a goroutine to broadcast
+		}
 
 		commandResult, err := module.CommandRouter(commands, server.inMemoryStore, server.Role)
 
@@ -80,4 +100,17 @@ func(server *Server) handleConnection(connection net.Conn) {
 		}
 	}
 
+}
+
+func(server *Server) BroadcastToFollowers(command string){
+	server.followerMut.Lock()
+	defer server.followerMut.Unlock()
+
+	for _, conn := range server.followers {
+		_, err := conn.Write([]byte(command + "\n"))
+
+		if err != nil {
+			fmt.Println("Failed to send command to follower")
+		}
+	}
 }

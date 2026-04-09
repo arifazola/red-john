@@ -27,14 +27,18 @@ func main() {
 		role = "FOLLOWER"
 	}
 
+	memoryStore := module.NewInMemoryStore()
+
 	fmt.Printf("Starting server as %s on port %s\n", role, *port)
     if role == "FOLLOWER" {
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
-		ConnectToLeader(*leaderAddr, ctx)
+		client := Client{
+			inMemoryStore: memoryStore,
+		}
+		client.ConnectToLeader(*leaderAddr, ctx)
     }
 
 	defer stop()
-	memoryStore := module.NewInMemoryStore()
 	
 	server := Server{
 		inMemoryStore: memoryStore,
