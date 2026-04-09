@@ -29,6 +29,7 @@ func main() {
 	fmt.Printf("Starting server as %s on port %s\n", role, *port)
     if role == "FOLLOWER" {
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
+		ConnectToLeader(*leaderAddr)
     }
 
 

@@ -62,6 +62,8 @@ func(server *Server) handleConnection(connection net.Conn) {
 			return
 		}
 
+		fmt.Println("message ", msg)
+
 		msg = strings.TrimSpace(msg)
 		if msg == ""{continue}
 
