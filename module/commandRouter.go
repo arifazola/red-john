@@ -23,8 +23,13 @@ func CommandRouter(commands []string, memoryStore *InMemoryStore) (string, error
 		memoryStore.Set(commands[1], item)
 		return "OK\n", nil
 	case "GET":
-		item, _ := memoryStore.Get(commands[1])
-		return item.Value, nil
+		item, ok := memoryStore.Get(commands[1])
+
+		if !ok {
+			return "NOT_FOUND\n", nil
+		}
+
+		return item.Value + "\n", nil
 	default:
 		return "", errors.New("Invalid Command")
 	}

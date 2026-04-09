@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	storeInterface "github.com/arifazola/red-john/interfaces"
@@ -12,23 +14,42 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	memoryStore := module.NewInMemoryStore()
 	
 	server := Server{
 		inMemoryStore: memoryStore,
 	}
-	go server.StartServer()
-	go memoryStore.Clean()
-	go memoryStore.Write()
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	var wg sync.WaitGroup
 
-	fmt.Println("Store is running. Press ctrl + c to stop")
+	wg.Add(3)
 
-	<- sigChan
+	go func ()  {
+		defer wg.Done()
+		server.StartServer(ctx)
+	}()
+
+	go func ()  {
+		defer wg.Done()
+		memoryStore.Clean(ctx)
+	}()
+
+	go func ()  {
+		defer wg.Done()
+		memoryStore.Write(ctx)
+	}()
+
+	<-ctx.Done()
+	
+	fmt.Println("Saving data")
+
+	memoryStore.WriteToJson()
+
+	wg.Wait()
+
 	fmt.Println("Shutting down gracefully")
-
 }
 
 func GetKey(store storeInterface.Store){

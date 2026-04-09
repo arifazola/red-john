@@ -1,6 +1,7 @@
 package module
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -51,28 +52,34 @@ func (s *InMemoryStore) GetAll() (map[string]models.Item, bool){
 	return copyData, true
 }
 
-func (s *InMemoryStore) Clean(){
-
+func (s *InMemoryStore) Clean(context context.Context){
 	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-	go func ()  {
-		for range ticker.C{
-			fmt.Println("run cleaner")
+	for {
+		select {
+		case <-context.Done():
+			fmt.Println("Cleaner stopping")
+			return
+		case <-ticker.C:
 			s.deleteExpired()
 		}
-	}()
-
+	}
 }
 
-func (s *InMemoryStore) Write(){
+func (s *InMemoryStore) Write(context context.Context){
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 
-	go func ()  {
-		for range ticker.C{
-			fmt.Println("writing data to disk")
-			s.writeToJson()
+	for {
+		select{
+		case <-context.Done():
+			fmt.Println("Writer stopping")
+			return
+		case <-ticker.C:
+			s.WriteToJson()
 		}
-	}()
+	}
 }
 
 func (s *InMemoryStore) deleteExpired(){
@@ -88,7 +95,7 @@ func (s *InMemoryStore) deleteExpired(){
 	}
 }
 
-func (s *InMemoryStore) writeToJson(){
+func (s *InMemoryStore) WriteToJson(){
 	s.mut.RLock()
     tempCopy := make(map[string]models.Item, len(s.data))
     maps.Copy(tempCopy, s.data)

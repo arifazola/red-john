@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -14,21 +15,24 @@ type Server struct {
 	inMemoryStore *module.InMemoryStore
 }
 
-func(server *Server) StartServer() {
+func(server *Server) StartServer(context context.Context) {
 	ln, err := net.Listen("tcp", ":8080")
 
 	if err != nil {
 		fmt.Println("error listening network ", err)
 	}
 
-	defer ln.Close()
+	go func ()  {
+		<-context.Done()
+		ln.Close()
+	}()
 
 	for {
 		conn, err := ln.Accept()
 
 		if err != nil {
 			fmt.Println("error connection ", err)
-			continue
+			return
 		}
 
 		fmt.Println("connected")
