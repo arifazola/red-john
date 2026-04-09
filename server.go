@@ -20,6 +20,7 @@ func(server *Server) StartServer(context context.Context) {
 
 	if err != nil {
 		fmt.Println("error listening network ", err)
+		return
 	}
 
 	go func ()  {
