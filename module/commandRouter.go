@@ -4,10 +4,11 @@ import (
 	"errors"
 	"time"
 
+	"github.com/arifazola/red-john/enums"
 	"github.com/arifazola/red-john/models"
 )
 
-func CommandRouter(commands []string, memoryStore *InMemoryStore) (string, error) {
+func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (string, error) {
 	commandIsValid := validateCommand(commands)
 
 	if !commandIsValid {
@@ -16,6 +17,9 @@ func CommandRouter(commands []string, memoryStore *InMemoryStore) (string, error
 
 	switch commands[0] {
 	case "SET":
+		if role == enums.RoleFollower {
+			return "", errors.New("READ_ONLY_SERVER")
+		}
 		item := models.Item{
 			Value: commands[2],
 			ExpiresAt: time.Now().Add(1200 * time.Second).UnixNano(),

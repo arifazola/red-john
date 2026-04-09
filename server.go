@@ -13,10 +13,11 @@ import (
 
 type Server struct {
 	inMemoryStore *module.InMemoryStore
+	Addr, LeaderAddr, Role  string
 }
 
 func(server *Server) StartServer(context context.Context) {
-	ln, err := net.Listen("tcp", ":8080")
+	ln, err := net.Listen("tcp", ":"+server.Addr)
 
 	if err != nil {
 		fmt.Println("error listening network ", err)
@@ -66,7 +67,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 		commands := module.TextTokenizer(msg)
 
-		commandResult, err := module.CommandRouter(commands, server.inMemoryStore)
+		commandResult, err := module.CommandRouter(commands, server.inMemoryStore, server.Role)
 
 		if err != nil {
 			fmt.Println("Command error", err)
