@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	port := flag.String("port", "8080", "The port the server will listen to")
 	leaderAddr := flag.String("leader", "", "Address of the leader server (if this is a follower)")
 
@@ -29,12 +30,9 @@ func main() {
 	fmt.Printf("Starting server as %s on port %s\n", role, *port)
     if role == "FOLLOWER" {
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
-		ConnectToLeader(*leaderAddr)
+		ConnectToLeader(*leaderAddr, ctx)
     }
 
-
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	memoryStore := module.NewInMemoryStore()
 	

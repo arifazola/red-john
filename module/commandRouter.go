@@ -9,6 +9,10 @@ import (
 )
 
 func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (string, error) {
+	if role != "" {
+		return "YOU ARE SYNCED\n", nil
+	}
+	
 	commandIsValid := validateCommand(commands)
 
 	if !commandIsValid {
