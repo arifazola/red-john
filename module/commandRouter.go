@@ -8,11 +8,7 @@ import (
 	"github.com/arifazola/red-john/models"
 )
 
-func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (string, error) {
-	if role != "" && commands[0] == "SYNC_ME" {
-		return "YOU ARE SYNCED\n", nil
-	}
-	
+func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (string, error) {	
 	commandIsValid := validateCommand(commands)
 
 	if !commandIsValid {

@@ -22,6 +22,14 @@ func(client *Client) ConnectToLeader(leaderAddr string, context context.Context)
 		return
 	}
 
+	go func ()  {
+		<-context.Done()
+		conn.Close()
+	}()
+
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
 
 	_, writeError := conn.Write([]byte("SYNC_ME\n"))
 
@@ -30,33 +38,20 @@ func(client *Client) ConnectToLeader(leaderAddr string, context context.Context)
 		return
 	}
 
-	go func ()  {
-		defer conn.Close()
-
-		reader := bufio.NewReader(conn)
-
-		for {
-			select {
-			case <-context.Done():
-				fmt.Println("follower sync stopping")
-			default :
-				
-			}
-
-			msg, err := reader.ReadString('\n')
-				if err != nil {
-					fmt.Println("Lost connection to leader", err)
-					return
-				}
-
-				fmt.Println("Command from leader")
-				commands := strings.Fields(msg)
-
-				fmt.Println("Adding command for followers")
-				result, err := module.CommandRouter(commands, client.inMemoryStore, "")
-
-				fmt.Println("client command result ", result)
+	for {
+		msg, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Lost connection to leader", err)
+			return
 		}
-	}()
+
+		fmt.Println("Command from leader", msg)
+		commands := strings.Fields(msg)
+
+		fmt.Println("Adding command for followers")
+		result, err := module.CommandRouter(commands, client.inMemoryStore, "")
+
+		fmt.Println("client command result ", result)
+	}
 
 }

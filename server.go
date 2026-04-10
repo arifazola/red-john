@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -76,6 +77,9 @@ func(server *Server) handleConnection(connection net.Conn) {
 		if msg == ""{continue}
 
 		if(msg == "SYNC_ME"){
+			// connection.Write([]byte("YOU ARE SYNCED\n"))
+			fmt.Println("Sending data to follower")
+			server.SendSnapshotToFollower(connection)
 			server.followerMut.Lock()
 			defer server.followerMut.Unlock()
 			server.followers = append(server.followers, connection)
@@ -86,7 +90,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 		commands := module.TextTokenizer(msg)
 
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
-			server.BroadcastToFollowers(msg) //spawn a goroutine to broadcast
+			server.BroadcastToFollowers(msg)
 		}
 
 		commandResult, err := module.CommandRouter(commands, server.inMemoryStore, server.Role)
@@ -100,6 +104,40 @@ func(server *Server) handleConnection(connection net.Conn) {
 		}
 	}
 
+}
+
+func(server *Server) SendSnapshotToFollower(conn net.Conn) error {
+	fmt.Println("Serializing In memory data")
+	data, err := server.serializeInMemoryData()
+
+	if err != nil {
+		fmt.Println("serialize error ", err)
+		return err
+	}
+	fmt.Println("leader data", data)
+	conn.Write([]byte(data + "\n"))
+
+	return nil
+}
+
+func(server *Server) serializeInMemoryData() (string, error){
+	fmt.Println("fdsf")
+	server.inMemoryStore.Mut.Lock()
+	defer server.inMemoryStore.Mut.Unlock()
+
+	data := server.inMemoryStore.GetAllUnsafe()
+
+	json, err := json.Marshal(data)
+
+	if err != nil {
+		fmt.Println("error json marshal ", err)
+		return "", err
+	}
+
+	fmt.Println("json result ")
+	fmt.Println(json)
+
+	return string(json), nil 
 }
 
 func(server *Server) BroadcastToFollowers(command string){

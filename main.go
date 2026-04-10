@@ -29,13 +29,19 @@ func main() {
 
 	memoryStore := module.NewInMemoryStore()
 
+	var wg sync.WaitGroup
+
 	fmt.Printf("Starting server as %s on port %s\n", role, *port)
     if role == "FOLLOWER" {
+		wg.Add(1)
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
 		client := Client{
 			inMemoryStore: memoryStore,
 		}
-		client.ConnectToLeader(*leaderAddr, ctx)
+		go func ()  {
+			defer wg.Done()
+			client.ConnectToLeader(*leaderAddr, ctx)
+		}()
     }
 
 	defer stop()
@@ -46,8 +52,6 @@ func main() {
 		LeaderAddr: *leaderAddr,
 		Role: role,
 	}
-
-	var wg sync.WaitGroup
 
 	wg.Add(3)
 

@@ -13,7 +13,7 @@ import (
 )
 
 type InMemoryStore struct {
-	mut  sync.RWMutex
+	Mut  sync.RWMutex
 	data map[string]models.Item
 }
 
@@ -26,30 +26,34 @@ func NewInMemoryStore() *InMemoryStore {
 }
 
 func (s *InMemoryStore) Get(key string) (models.Item, bool) {
-	s.mut.RLock()
-	defer s.mut.RUnlock()
+	s.Mut.RLock()
+	defer s.Mut.RUnlock()
 	val, ok := s.data[key]
 	return val, ok
 }
 
 func (s *InMemoryStore) Set(key string, value models.Item) {
-	s.mut.Lock()
-	defer s.mut.Unlock()
+	s.Mut.Lock()
+	defer s.Mut.Unlock()
 	s.data[key] = value
 }
 
 func (s *InMemoryStore) Delete (key string) {
-	s.mut.Lock()
-	defer s.mut.Unlock()
+	s.Mut.Lock()
+	defer s.Mut.Unlock()
 	delete(s.data, key)
 }
 
 func (s *InMemoryStore) GetAll() (map[string]models.Item, bool){
-	s.mut.RLock()
-	defer s.mut.RUnlock()
+	s.Mut.RLock()
+	defer s.Mut.RUnlock()
 	copyData := make(map[string]models.Item, len(s.data))
 	maps.Copy(copyData, s.data)
 	return copyData, true
+}
+
+func (s *InMemoryStore) GetAllUnsafe() map[string]models.Item {
+	return s.data
 }
 
 func (s *InMemoryStore) Clean(context context.Context){
@@ -84,8 +88,8 @@ func (s *InMemoryStore) Write(context context.Context){
 
 func (s *InMemoryStore) deleteExpired(){
 	now := time.Now().UnixNano()
-	s.mut.Lock()
-	defer s.mut.Unlock()
+	s.Mut.Lock()
+	defer s.Mut.Unlock()
 
 	for key, value := range s.data {
 		if(value.ExpiresAt > 0 && now > value.ExpiresAt){
@@ -96,10 +100,10 @@ func (s *InMemoryStore) deleteExpired(){
 }
 
 func (s *InMemoryStore) WriteToJson(){
-	s.mut.RLock()
+	s.Mut.RLock()
     tempCopy := make(map[string]models.Item, len(s.data))
     maps.Copy(tempCopy, s.data)
-    s.mut.RUnlock()
+    s.Mut.RUnlock()
 
 	tempPath := "data.json.tmp"
 	finalPath := "data.json"
