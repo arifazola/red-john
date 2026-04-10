@@ -52,7 +52,10 @@ func(server *Server) handleConnection(connection net.Conn) {
 	shouldCloseConnection := true //flag
 	defer func ()  {
 		if shouldCloseConnection{
+			fmt.Println("CLOSING CONNECTION")
 			connection.Close()
+		} else {
+			fmt.Println("Connection stays opened")
 		}
 	}()
 
@@ -90,6 +93,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 		commands := module.TextTokenizer(msg)
 
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
+			fmt.Println("Broadcasting SET command to followers")
 			server.BroadcastToFollowers(msg)
 		}
 
@@ -135,7 +139,7 @@ func(server *Server) serializeInMemoryData() (string, error){
 	}
 
 	fmt.Println("json result ")
-	fmt.Println(json)
+	fmt.Println(string(json))
 
 	return string(json), nil 
 }
@@ -144,11 +148,13 @@ func(server *Server) BroadcastToFollowers(command string){
 	server.followerMut.Lock()
 	defer server.followerMut.Unlock()
 
+	fmt.Println("Followers list", server.followers)
+
 	for _, conn := range server.followers {
 		_, err := conn.Write([]byte(command + "\n"))
 
 		if err != nil {
-			fmt.Println("Failed to send command to follower")
+			fmt.Println("Failed to send command to follower ", err)
 		}
 	}
 }

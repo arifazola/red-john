@@ -71,6 +71,12 @@ func (s *InMemoryStore) Clean(context context.Context){
 	}
 }
 
+func (s *InMemoryStore) SetAll(data map[string]models.Item){
+	s.Mut.Lock()
+	defer s.Mut.Unlock()
+	s.data = data
+}
+
 func (s *InMemoryStore) Write(context context.Context){
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
