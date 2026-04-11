@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/arifazola/red-john/models"
 	"github.com/arifazola/red-john/module"
@@ -16,11 +17,20 @@ type Client struct {
 	inMemoryStore *module.InMemoryStore
 }
 
-func(client *Client) ConnectToLeader(leaderAddr string, context context.Context) {
+func(client *Client) ConnectToLeader(leaderAddr string, context context.Context, numOfRetry int) {
+	retry := numOfRetry
+	maxNumOfRetry := 5
+	
 	conn, err := net.Dial("tcp", leaderAddr)
 
 	if err != nil {
+		if(numOfRetry == maxNumOfRetry){
+			return
+		}
 		fmt.Println("Error connecting to leader server ", err)
+		fmt.Println("Reconnecting ", retry)
+		time.Sleep(2 * time.Second)
+		client.ConnectToLeader(leaderAddr, context, retry + 1)
 		return
 	}
 

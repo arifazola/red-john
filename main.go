@@ -40,7 +40,7 @@ func main() {
 		}
 		go func ()  {
 			defer wg.Done()
-			client.ConnectToLeader(*leaderAddr, ctx)
+			client.ConnectToLeader(*leaderAddr, ctx, 0)
 		}()
     }
 
