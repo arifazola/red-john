@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/arifazola/red-john/enums"
 	"github.com/arifazola/red-john/module"
@@ -150,11 +151,33 @@ func(server *Server) BroadcastToFollowers(command string){
 
 	fmt.Println("Followers list", server.followers)
 
+	var activeFollowers []net.Conn
+
 	for _, conn := range server.followers {
 		_, err := conn.Write([]byte(command + "\n"))
 
 		if err != nil {
 			fmt.Println("Failed to send command to follower ", err)
+			continue
+		}
+
+		activeFollowers = append(activeFollowers, conn)
+	}
+
+	server.followers = activeFollowers
+}
+
+func (server *Server) SendHeartbeat(conn net.Conn, context context.Context){
+	ticker := time.NewTicker(30 * time.Second)
+
+	for{
+		select{
+		case <-context.Done():
+			fmt.Println("Stopping heartbeat")
+			return
+		case <-ticker.C:
+			server.BroadcastToFollowers("")
 		}
 	}
+	
 }
