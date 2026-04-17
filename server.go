@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/arifazola/red-john/enums"
+	"github.com/arifazola/red-john/models"
 	"github.com/arifazola/red-john/module"
 )
 
@@ -35,6 +38,11 @@ func(server *Server) StartServer(context context.Context) {
 		ln.Close()
 	}()
 
+	if err := server.SyncLocalData(); err != nil {
+		log.Fatalf("Critical error loading local data: %v", err)
+	}
+	
+
 	for {
 		conn, err := ln.Accept()
 
@@ -47,6 +55,31 @@ func(server *Server) StartServer(context context.Context) {
 
 		go server.handleConnection(conn)
 	}
+}
+
+func(server *Server) SyncLocalData() error{
+	data, err := os.ReadFile("data.json")
+
+	if err != nil {
+		if os.IsNotExist(err){
+			fmt.Println("No existing data. Starting fresh")
+			return nil
+		}
+
+		return fmt.Errorf("failed to read data file: %w", err)
+	}
+
+	var parsedJson map[string]models.Item
+
+	jsonErr := json.Unmarshal(data, &parsedJson)
+
+	if jsonErr != nil {
+		return fmt.Errorf("Failed to parse data. File might be corrupted: %w", err)
+	}
+
+	server.inMemoryStore.SetAll(parsedJson)
+
+	return nil
 }
 
 func(server *Server) handleConnection(connection net.Conn) {
@@ -83,9 +116,9 @@ func(server *Server) handleConnection(connection net.Conn) {
 		if(msg == "SYNC_ME"){
 			// connection.Write([]byte("YOU ARE SYNCED\n"))
 			fmt.Println("Sending data to follower")
-			server.SendSnapshotToFollower(connection)
 			server.followerMut.Lock()
 			defer server.followerMut.Unlock()
+			server.SendSnapshotToFollower(connection)
 			server.followers = append(server.followers, connection)
 			shouldCloseConnection = false
 			return;
