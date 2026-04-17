@@ -35,12 +35,12 @@ func main() {
     if role == "FOLLOWER" {
 		wg.Add(1)
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
-		client := Client{
+		follower := Follower{
 			inMemoryStore: memoryStore,
 		}
 		go func ()  {
 			defer wg.Done()
-			client.ConnectToLeader(*leaderAddr, ctx)
+			follower.ConnectToLeader(*leaderAddr, ctx)
 		}()
     }
 

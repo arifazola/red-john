@@ -22,7 +22,7 @@ type Server struct {
 	inMemoryStore *module.InMemoryStore
 	Addr, LeaderAddr, Role  string
 	followerMut sync.Mutex
-	followers []net.Conn
+	followers []*models.Follower
 }
 
 func(server *Server) StartServer(context context.Context) {
@@ -102,7 +102,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 			if err == io.EOF {
 				fmt.Println("client disconnected")
 			} else {
-				fmt.Println("read error:", err)
+				fmt.Println("read error handle connection:", err)
 			}
 
 			return
@@ -117,19 +117,28 @@ func(server *Server) handleConnection(connection net.Conn) {
 			// connection.Write([]byte("YOU ARE SYNCED\n"))
 			fmt.Println("Sending data to follower")
 			server.followerMut.Lock()
-			defer server.followerMut.Unlock()
 			server.SendSnapshotToFollower(connection)
-			server.followers = append(server.followers, connection)
+			follower := models.Follower{
+				Conn: connection,
+				Ch: make(chan string),
+			}
+			server.followers = append(server.followers, &follower)
 			shouldCloseConnection = false
+			server.followerMut.Unlock()
+
+			server.FollowerListener(&follower)
 			return;
 		}
 
 		commands := module.TextTokenizer(msg)
 
+		shouldReturnToClient := true
+
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
 			fmt.Println("Broadcasting SET command to followers")
-			server.BroadcastToFollowers(msg)
+			shouldReturnToClient = len(server.followers) == 0 || server.BroadcastToFollowers(msg)
 		}
+
 
 		commandResult, err := module.CommandRouter(commands, server.inMemoryStore, server.Role)
 
@@ -137,11 +146,56 @@ func(server *Server) handleConnection(connection net.Conn) {
 			fmt.Println("Command error", err)
 			connection.Write([]byte("ERR " + err.Error() + "\n"))
 			// return
-		} else {
+		} else if shouldReturnToClient {
 			connection.Write([]byte(commandResult))
 		}
 	}
 
+}
+
+func (server *Server) FollowerListener(follower *models.Follower){
+	defer func() {
+        follower.Conn.Close()
+        server.RemoveFollower(follower)
+    }()
+
+	reader := bufio.NewReader(follower.Conn)
+
+	for {
+		msg, err := reader.ReadString('\n')
+
+		if err != nil {
+			fmt.Println("Error Reading Follower Listener:", err)
+			return
+		}
+
+		msg = strings.TrimSpace(msg)
+
+		if(msg == "STORED"){
+			select {
+			case follower.Ch <- "STORED":
+				fmt.Println("Reciving acknowledge command from follower")
+			default:
+
+			}
+		}
+
+	}
+}
+
+func (server *Server) RemoveFollower(f *models.Follower) {
+    server.followerMut.Lock()
+    defer server.followerMut.Unlock()
+
+    for i, follower := range server.followers {
+        // Compare pointers to find the exact follower
+        if follower == f {
+            // Standard Go way to remove an element from a slice
+            server.followers = append(server.followers[:i], server.followers[i+1:]...)
+            fmt.Println("Removed dead follower. Remaining:", len(server.followers))
+            return
+        }
+    }
 }
 
 func(server *Server) SendSnapshotToFollower(conn net.Conn) error {
@@ -178,26 +232,55 @@ func(server *Server) serializeInMemoryData() (string, error){
 	return string(json), nil 
 }
 
-func(server *Server) BroadcastToFollowers(command string){
+func(server *Server) BroadcastToFollowers(command string) bool{
 	server.followerMut.Lock()
-	defer server.followerMut.Unlock()
+	followers := server.followers
+	server.followerMut.Unlock()
 
 	fmt.Println("Followers list", server.followers)
 
-	var activeFollowers []net.Conn
+	var wg sync.WaitGroup
+	askCount := make(chan bool, len(followers))
+	
+	
+	for _, f := range server.followers {
+		wg.Add(1)
+		go func (follower *models.Follower)  {
+			defer wg.Done()
+			_, err := follower.Conn.Write([]byte(command + "\n"))
 
-	for _, conn := range server.followers {
-		_, err := conn.Write([]byte(command + "\n"))
+			if err != nil {
+				fmt.Println("Failed to send command to follower ", err)
+				return
+			}
 
-		if err != nil {
-			fmt.Println("Failed to send command to follower ", err)
-			continue
-		}
 
-		activeFollowers = append(activeFollowers, conn)
+			select {
+			case msg := <- follower.Ch:
+				fmt.Println("Recieved message from channel", msg)
+				if msg == "STORED"{
+					askCount <- true
+				}
+			case <-time.After(2 * time.Second):
+				fmt.Println("Broadcast follower error. Follower timed out")
+			}
+		}(f)
 	}
 
-	server.followers = activeFollowers
+	go func ()  {
+		wg.Wait()
+		close(askCount)
+	}()
+
+	for success := range askCount {
+		fmt.Println("Total success", success)
+		if success{
+			fmt.Println("Total success returned", success)
+			return true;
+		}
+	}
+
+	return false
 }
 
 func (server *Server) SendHeartbeat(conn net.Conn, context context.Context){
