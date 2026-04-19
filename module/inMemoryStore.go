@@ -78,7 +78,7 @@ func (s *InMemoryStore) SetAll(data map[string]models.Item){
 }
 
 func (s *InMemoryStore) Write(context context.Context){
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -141,4 +141,6 @@ func (s *InMemoryStore) WriteToJson(){
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		fmt.Println("error during atomic rename ", err)
 	}
+
+	ClearLog()
 }

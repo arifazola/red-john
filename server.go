@@ -134,8 +134,13 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 		shouldReturnToClient := true
 
+		if commands[0] == "CRASH_TEST" {
+			os.Exit(1) // Immediate exit, no defers run
+		}
+
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
 			fmt.Println("Broadcasting SET command to followers")
+			module.LogCommand(msg)
 			shouldReturnToClient = len(server.followers) == 0 || server.BroadcastToFollowers(msg)
 		}
 
