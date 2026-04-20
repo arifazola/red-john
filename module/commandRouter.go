@@ -2,6 +2,8 @@ package module
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/arifazola/red-john/enums"
@@ -20,8 +22,11 @@ func CommandRouter(commands []string, memoryStore *InMemoryStore, role string) (
 		if role == enums.RoleFollower {
 			return "", errors.New("READ_ONLY_SERVER")
 		}
+
+		copiedCommand := slices.Clone(commands)
+		value := strings.Join(slices.Delete(copiedCommand, 0, 2), " ")
 		item := models.Item{
-			Value: commands[2],
+			Value: value,
 			ExpiresAt: time.Now().Add(1200 * time.Second).UnixNano(),
 		}
 		memoryStore.Set(commands[1], item)
