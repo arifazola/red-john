@@ -3,6 +3,8 @@ package module
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 )
 
 func LogCommand(command string) {
@@ -14,7 +16,8 @@ func LogCommand(command string) {
 	}
 
 	defer f.Close()
-	f.WriteString(command + "\n")
+	expiredDataNano := time.Now().Add(1200 * time.Second).UnixNano()
+	f.WriteString(command + " EXP_AT " + strconv.FormatInt(expiredDataNano, 10) + "\n")
 	f.Sync()
 }
 

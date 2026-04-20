@@ -43,7 +43,7 @@ func validateCommand(commands []string) bool {
 	if len(commands) < 2 { return false }
     
     if commands[0] == "GET" && len(commands) != 2 { return false }
-    if commands[0] == "SET" && len(commands) != 3 { return false }
+    if commands[0] == "SET" && len(commands) < 3 { return false }
     
     return true
 }

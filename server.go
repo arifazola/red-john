@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,10 @@ func(server *Server) StartServer(context context.Context) {
 
 	if err := server.SyncLocalData(); err != nil {
 		log.Fatalf("Critical error loading local data: %v", err)
+	}
+
+	if logErr := server.SyncLogData(); logErr != nil {
+		log.Fatalf("Critical error reading log file: %v", err)
 	}
 	
 
@@ -300,5 +305,44 @@ func (server *Server) SendHeartbeat(conn net.Conn, context context.Context){
 			server.BroadcastToFollowers("")
 		}
 	}
-	
+}
+
+func(server *Server) SyncLogData() error{
+	file, err := os.Open("wal.log")
+
+	if err != nil {
+		fmt.Println("Error opening wal.log for syncing: ", err)
+		return err
+	}
+
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		commands := module.TextTokenizer(scanner.Text())
+
+		fmt.Println("LOG COMMAND " + commands[0], commands[1])
+
+		expiredDate, convertError := strconv.ParseInt(commands[4], 10, 64)
+
+		if convertError != nil {
+			return convertError
+		}
+
+		if time.Now().UnixNano() > expiredDate {
+			fmt.Println(commands[1] + " is expired")
+			continue
+		}
+
+		commandResult, errorCommand := module.CommandRouter(commands, server.inMemoryStore, server.Role)
+
+		if errorCommand != nil {
+			fmt.Println("Command Error Log ", errorCommand)
+		}
+
+		fmt.Println("Command Result ", commandResult)
+	}
+
+	return nil
 }
