@@ -44,10 +44,15 @@ func(server *Server) StartServer(context context.Context) {
 	}
 
 	if logErr := server.SyncLogData(); logErr != nil {
-		log.Fatalf("Critical error reading log file: %v", err)
+		log.Fatalf("Critical error reading log file: %v", logErr)
 	}
-	
 
+	if server.Role == enums.RoleLeader {
+		server.StartHeartbeatLoop() 
+		server.FollowerCleaner()
+	}
+
+	
 	for {
 		conn, err := ln.Accept()
 
@@ -179,6 +184,10 @@ func (server *Server) FollowerListener(follower *models.Follower){
 			return
 		}
 
+		follower.LastSeen = time.Now()
+
+		fmt.Println("Follower message: ", msg)
+
 		msg = strings.TrimSpace(msg)
 
 		if(msg == "STORED"){
@@ -191,6 +200,24 @@ func (server *Server) FollowerListener(follower *models.Follower){
 		}
 
 	}
+}
+
+func (server *Server) FollowerCleaner(){
+	ticker := time.NewTicker(10 * time.Second)
+
+	go func ()  {
+		for range ticker.C {
+			server.followerMut.Lock()
+			for _, f := range server.followers{
+				if time.Since(f.LastSeen) > 60 * time.Second{
+					fmt.Printf("Follower Cleaner: Follower %s is a zombie. Terminating.\n", f.Conn.RemoteAddr())
+
+					f.Conn.Close()
+				}
+			}
+			server.followerMut.Unlock()
+		}
+	}()
 }
 
 func (server *Server) RemoveFollower(f *models.Follower) {
@@ -293,18 +320,21 @@ func(server *Server) BroadcastToFollowers(command string) bool{
 	return false
 }
 
-func (server *Server) SendHeartbeat(conn net.Conn, context context.Context){
-	ticker := time.NewTicker(30 * time.Second)
-
-	for{
-		select{
-		case <-context.Done():
-			fmt.Println("Stopping heartbeat")
-			return
-		case <-ticker.C:
-			server.BroadcastToFollowers("")
-		}
-	}
+func (server *Server) StartHeartbeatLoop() {
+	fmt.Println("Heartbeat loop started")
+    ticker := time.NewTicker(20 * time.Second)
+    go func() {
+        for range ticker.C {
+            server.followerMut.Lock()
+            for _, f := range server.followers {
+                _, err := f.Conn.Write([]byte("PING\n"))
+                if err != nil {
+                    fmt.Println("Ping failed for follower:", f.Conn.RemoteAddr())
+                }
+            }
+            server.followerMut.Unlock()
+        }
+    }()
 }
 
 func(server *Server) SyncLogData() error{

@@ -77,6 +77,11 @@ func(client *Follower) ConnectToLeader(leaderAddr string, context context.Contex
 			//if message can be parsed, then it's a syncing data. Follower must store data from leader to it's own inMemoryStore
 			if jsonErr != nil {
 				commands := strings.Fields(msg)
+				
+				if commands[0] == "PING"{
+					conn.Write([]byte("PONG\n"))
+					continue
+				}
 
 				fmt.Println("Adding command for followers", commands)
 				result, _ := module.CommandRouter(commands, client.inMemoryStore, "")
