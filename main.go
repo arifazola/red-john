@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"sync"
@@ -35,8 +36,15 @@ func main() {
     if role == "FOLLOWER" {
 		wg.Add(1)
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
+		min, max := 1, 1000
+		rangeNum := rand.IntN(max-min+1) + min
+		raftData := models.RaftData{
+			ElectionInterval: rangeNum,
+			Role: role,
+		}
 		follower := Follower{
 			inMemoryStore: memoryStore,
+			RaftData: &raftData,
 		}
 		go func ()  {
 			defer wg.Done()

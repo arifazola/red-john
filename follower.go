@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 
 type Follower struct {
 	inMemoryStore *module.InMemoryStore
+	RaftData *models.RaftData
+	timer *time.Timer
 }
 
 func(client *Follower) ConnectToLeader(leaderAddr string, context context.Context) {
@@ -45,6 +48,10 @@ func(client *Follower) ConnectToLeader(leaderAddr string, context context.Contex
 			conn.Close()
 			continue // continue to the next loop to retry 
 		}
+
+		go func ()  {
+			client.StartElectionTimer()
+		}()
 
 		for {
 			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -79,6 +86,7 @@ func(client *Follower) ConnectToLeader(leaderAddr string, context context.Contex
 				commands := strings.Fields(msg)
 				
 				if commands[0] == "PING"{
+					client.ResetElectionTimer()
 					conn.Write([]byte("PONG\n"))
 					continue
 				}
@@ -96,4 +104,29 @@ func(client *Follower) ConnectToLeader(leaderAddr string, context context.Contex
 		}
 	}
 
+}
+
+func (client *Follower) ResetElectionTimer(){
+	fmt.Println(">>> RESET ELECTION TIMER")
+	client.timer.Stop()
+	min, max := 4000, 10000
+	rangeNum := rand.IntN(max-min+1) + min
+	client.timer.Reset(time.Duration(rangeNum) * time.Millisecond)
+}
+
+func (client *Follower) StartElectionTimer(){
+	fmt.Println(">>> StartElectionTimer CALLED")
+	min, max := 4000, 10000
+	rangeNum := rand.IntN(max-min+1) + min
+	client.RaftData.ElectionInterval = rangeNum 
+	client.timer = time.NewTimer(time.Duration(client.RaftData.ElectionInterval) * time.Millisecond)
+	
+	for {
+		fmt.Println("Election timer start with interval:", client.RaftData.ElectionInterval)
+
+		<-client.timer.C
+		
+		fmt.Println("Should start election")
+		//Start election implementation
+	}
 }

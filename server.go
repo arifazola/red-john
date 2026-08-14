@@ -131,6 +131,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 			follower := models.Follower{
 				Conn: connection,
 				Ch: make(chan string),
+				LastSeen: time.Now(),
 			}
 			server.followers = append(server.followers, &follower)
 			shouldCloseConnection = false
@@ -322,7 +323,7 @@ func(server *Server) BroadcastToFollowers(command string) bool{
 
 func (server *Server) StartHeartbeatLoop() {
 	fmt.Println("Heartbeat loop started")
-    ticker := time.NewTicker(20 * time.Second)
+    ticker := time.NewTicker(3 * time.Second)
     go func() {
         for range ticker.C {
             server.followerMut.Lock()
