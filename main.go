@@ -33,33 +33,38 @@ func main() {
 	var wg sync.WaitGroup
 
 	fmt.Printf("Starting server as %s on port %s\n", role, *port)
+	min, max := 1, 1000
+	rangeNum := rand.IntN(max-min+1) + min
+	raftData := models.RaftData{
+		ElectionInterval: rangeNum,
+		Role: role,
+	}
+	server := Server{
+		inMemoryStore: memoryStore,
+		RaftData: &raftData,
+		Addr: *port,
+		LeaderAddr: *leaderAddr,
+		Role: role,
+	}
+
     if role == "FOLLOWER" {
 		wg.Add(1)
         fmt.Printf("Connecting to leader at %s\n", *leaderAddr)
-		min, max := 1, 1000
-		rangeNum := rand.IntN(max-min+1) + min
-		raftData := models.RaftData{
-			ElectionInterval: rangeNum,
-			Role: role,
-		}
-		follower := Follower{
-			inMemoryStore: memoryStore,
-			RaftData: &raftData,
-		}
+		
 		go func ()  {
 			defer wg.Done()
-			follower.ConnectToLeader(*leaderAddr, ctx)
+			server.ConnectToLeader(*leaderAddr, ctx)
 		}()
     }
 
 	defer stop()
 	
-	server := Server{
-		inMemoryStore: memoryStore,
-		Addr: *port,
-		LeaderAddr: *leaderAddr,
-		Role: role,
-	}
+	// server := Server{
+	// 	inMemoryStore: memoryStore,
+	// 	Addr: *port,
+	// 	LeaderAddr: *leaderAddr,
+	// 	Role: role,
+	// }
 
 	wg.Add(3)
 

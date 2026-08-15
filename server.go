@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net"
 	"os"
 	"strconv"
@@ -22,11 +23,14 @@ import (
 type Server struct {
 	inMemoryStore *module.InMemoryStore
 	Addr, LeaderAddr, Role  string
+	RaftData *models.RaftData
+	timer *time.Timer
 	followerMut sync.Mutex
 	followers []*models.Follower
 }
 
 func(server *Server) StartServer(context context.Context) {
+	fmt.Println("Start server as: ", server.Role)
 	ln, err := net.Listen("tcp", ":"+server.Addr)
 
 	if err != nil {
@@ -156,6 +160,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 		}
 
 
+		fmt.Println("Command router as: ", server.Role)
 		commandResult, err := module.CommandRouter(commands, server.inMemoryStore, server.Role)
 
 		if err != nil {
@@ -376,4 +381,107 @@ func(server *Server) SyncLogData() error{
 	}
 
 	return nil
+}
+
+func(server *Server) ConnectToLeader(leaderAddr string, context context.Context) {
+	maxNumOfRetry := 5
+	
+	for i := 1; i < maxNumOfRetry; i ++ {
+		conn, err := net.Dial("tcp", leaderAddr)
+
+		if err != nil {
+			fmt.Println("Error connecting to leader server ", err)
+
+			select {
+			case <-time.After(2 * time.Second):
+				continue
+			case <-context.Done():
+				fmt.Println("Shutting down signal received")
+				return
+			}
+		}
+
+
+		reader := bufio.NewReader(conn)
+
+		_, writeError := conn.Write([]byte("SYNC_ME\n"))
+
+		if writeError != nil {
+			fmt.Println("error writing message ", writeError)
+			conn.Close()
+			continue // continue to the next loop to retry 
+		}
+
+		go func ()  {
+			server.StartElectionTimer(context, conn)
+		}()
+
+		for {
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			msg, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Println("Lost connection to leader", err)
+				conn.Close()
+				i = maxNumOfRetry
+				break //break to get out of this inner loop and retry
+			}
+
+			fmt.Println("Command from leader", msg)
+
+			var parsedJson map[string]models.Item
+			jsonErr := json.Unmarshal([]byte(msg), &parsedJson)
+
+			//check if parsing the message from leader throws an error
+			//if message cannot be parsed, then it's a command (SET or GET)
+			//if message can be parsed, then it's a syncing data. Follower must store data from leader to it's own inMemoryStore
+			if jsonErr != nil {
+				commands := strings.Fields(msg)
+				
+				if commands[0] == "PING"{
+					server.ResetElectionTimer()
+					conn.Write([]byte("PONG\n"))
+					continue
+				}
+
+				fmt.Println("Adding command for followers", commands)
+				result, _ := module.CommandRouter(commands, server.inMemoryStore, "")
+
+				fmt.Println("client command result ", result)
+				conn.Write([]byte("STORED\n"))
+			} else {
+				fmt.Println("Syncing")
+				server.inMemoryStore.SetAll(parsedJson)
+				fmt.Println("Finished syncing data")
+			}
+		}
+	}
+
+}
+
+func (server *Server) ResetElectionTimer(){
+	fmt.Println(">>> RESET ELECTION TIMER")
+	server.timer.Stop()
+	min, max := 4000, 10000
+	rangeNum := rand.IntN(max-min+1) + min
+	server.timer.Reset(time.Duration(rangeNum) * time.Millisecond)
+}
+
+func (server *Server) StartElectionTimer(context context.Context, conn net.Conn){
+	fmt.Println(">>> StartElectionTimer CALLED")
+	min, max := 4000, 10000
+	rangeNum := rand.IntN(max-min+1) + min
+	server.RaftData.ElectionInterval = rangeNum 
+	server.timer = time.NewTimer(time.Duration(server.RaftData.ElectionInterval) * time.Millisecond)
+	
+	for {
+		fmt.Println("Election timer start with interval:", server.RaftData.ElectionInterval)
+
+		<-server.timer.C
+		
+		fmt.Println("Should start election")
+		//Start election implementation
+
+		server.Role = enums.RoleLeader
+		return
+	}
 }
