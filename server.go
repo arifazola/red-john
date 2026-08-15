@@ -18,7 +18,6 @@ import (
 	"github.com/arifazola/red-john/enums"
 	"github.com/arifazola/red-john/models"
 	"github.com/arifazola/red-john/module"
-	"github.com/google/uuid"
 )
 
 type Server struct {
@@ -37,15 +36,16 @@ func(server *Server) StartServer(context context.Context) {
 	fmt.Println("Start server as: ", server.Role)
 	ln, err := net.Listen("tcp", ":"+server.Addr)
 
-	serverID := uuid.New().String()
-	server.ServerID = serverID
 	server.nodes = make(map[string]*models.Node)
 
 	node := models.Node{
+		ID: server.ServerID,
 		Address: server.Addr,
 		Role: server.Role,
 	}
-	server.nodes[serverID] = &node
+	server.nodes[server.ServerID] = &node
+
+	fmt.Printf("current nodes: %v\n", server.nodes[server.ServerID])
 
 	if err != nil {
 		fmt.Println("error listening network ", err)
@@ -159,8 +159,8 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 			err = json.Unmarshal([]byte(messageModel.Data), &nodeModel)
 
-			server.nodes[server.ServerID] = &nodeModel
-			
+			server.nodes[nodeModel.ID] = &nodeModel
+
 			server.SendSnapshotToFollower(connection)
 			follower := models.Follower{
 				Conn: connection,
@@ -273,21 +273,53 @@ func (server *Server) RemoveFollower(f *models.Follower) {
 }
 
 func(server *Server) SendSnapshotToFollower(conn net.Conn) error {
-	fmt.Println("Serializing In memory data")
 	data, err := server.serializeInMemoryData()
 
 	if err != nil {
 		fmt.Println("serialize error ", err)
 		return err
 	}
-	fmt.Println("leader data", data)
-	conn.Write([]byte(data + "\n"))
+
+	inMemoryMessageModel := models.Message{
+		Message: "SYNC_IN_MEMORY",
+		Data: data,
+	}
+
+	stringifyInMemoryMessageModel, err := json.Marshal(inMemoryMessageModel)
+
+	if err != nil {
+		fmt.Println("Error parsing in memory message model", err)
+		return err
+	}
+
+	nodeData, err := server.serializeNodes()
+
+	if err != nil {
+		fmt.Println("serialize error ", err)
+		return err
+	}
+
+	nodeMessageModel := models.Message{
+		Message: "NODES",
+		Data: nodeData,
+	}
+
+	stringifyNodesMessageModel, err := json.Marshal(nodeMessageModel)
+
+	if err != nil {
+		fmt.Println("Error parsing in memory message model", err)
+		return err
+	}
+
+	fmt.Println("Sending nodes data to follower", string(stringifyNodesMessageModel))
+
+	conn.Write([]byte(string(stringifyInMemoryMessageModel) + "\n"))
+	conn.Write([]byte(string(stringifyNodesMessageModel) + "\n"))
 
 	return nil
 }
 
 func(server *Server) serializeInMemoryData() (string, error){
-	fmt.Println("fdsf")
 	server.inMemoryStore.Mut.Lock()
 	defer server.inMemoryStore.Mut.Unlock()
 
@@ -300,8 +332,21 @@ func(server *Server) serializeInMemoryData() (string, error){
 		return "", err
 	}
 
-	fmt.Println("json result ")
-	fmt.Println(string(json))
+	return string(json), nil 
+}
+
+func(server *Server) serializeNodes() (string, error){
+	server.inMemoryStore.Mut.Lock()
+	defer server.inMemoryStore.Mut.Unlock()
+
+	data := server.nodes
+
+	json, err := json.Marshal(data)
+
+	if err != nil {
+		fmt.Println("error json marshal ", err)
+		return "", err
+	}
 
 	return string(json), nil 
 }
@@ -459,6 +504,8 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 			fmt.Println("Error parsing message model", err)
 		}
 
+		fmt.Println("Sending message to leader", string(stringifyMessageModel))
+
 		_, writeError := conn.Write([]byte(string(stringifyMessageModel) + "\n"))
 
 		if writeError != nil {
@@ -483,8 +530,8 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 
 			fmt.Println("Command from leader", msg)
 
-			var parsedJson map[string]models.Item
-			jsonErr := json.Unmarshal([]byte(msg), &parsedJson)
+			var event models.Event
+			jsonErr := json.Unmarshal([]byte(msg), &event)
 
 			//check if parsing the message from leader throws an error
 			//if message cannot be parsed, then it's a command (SET or GET)
@@ -504,9 +551,20 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 				fmt.Println("client command result ", result)
 				conn.Write([]byte("STORED\n"))
 			} else {
-				fmt.Println("Syncing")
-				server.inMemoryStore.SetAll(parsedJson)
-				fmt.Println("Finished syncing data")
+
+				switch event.Message{
+				case "SYNC_IN_MEMORY":
+					var parsedJson map[string]models.Item
+
+					_ = json.Unmarshal(event.Payload, &parsedJson)
+					fmt.Println("Syncing")
+					server.inMemoryStore.SetAll(parsedJson)
+					fmt.Println("Finished syncing data")
+				case "NODES":
+					var nodes map[string]*models.Node
+					_ = json.Unmarshal(event.Payload, &nodes)
+					server.nodes = nodes
+				}
 			}
 		}
 	}

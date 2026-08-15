@@ -13,6 +13,7 @@ import (
 	storeInterface "github.com/arifazola/red-john/interfaces"
 	"github.com/arifazola/red-john/models"
 	"github.com/arifazola/red-john/module"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -39,13 +40,22 @@ func main() {
 		ElectionInterval: rangeNum,
 		Role: role,
 	}
+	serverID := uuid.New().String()
 	server := Server{
 		inMemoryStore: memoryStore,
 		RaftData: &raftData,
 		Addr: *port,
 		LeaderAddr: *leaderAddr,
 		Role: role,
+		ServerID: serverID,
 	}
+
+	wg.Add(3)
+
+	go func ()  {
+		defer wg.Done()
+		server.StartServer(ctx)
+	}()
 
     if role == "FOLLOWER" {
 		wg.Add(1)
@@ -65,13 +75,6 @@ func main() {
 	// 	LeaderAddr: *leaderAddr,
 	// 	Role: role,
 	// }
-
-	wg.Add(3)
-
-	go func ()  {
-		defer wg.Done()
-		server.StartServer(ctx)
-	}()
 
 	go func ()  {
 		defer wg.Done()
