@@ -57,20 +57,9 @@ func(client *Follower) ConnectToLeader(leaderAddr string, context context.Contex
 			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			msg, err := reader.ReadString('\n')
 			if err != nil {
-				netErr, ok := err.(net.Error)
-				if ok && netErr.Timeout(){
-					select{
-					case <-context.Done():
-						fmt.Println("Shutting down reading")
-						conn.Close()
-						return
-					default:
-						fmt.Println("No message received after 5 second. Timeout")
-						continue
-					}
-				}
 				fmt.Println("Lost connection to leader", err)
 				conn.Close()
+				i = maxNumOfRetry
 				break //break to get out of this inner loop and retry
 			}
 
