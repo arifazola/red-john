@@ -18,20 +18,34 @@ import (
 	"github.com/arifazola/red-john/enums"
 	"github.com/arifazola/red-john/models"
 	"github.com/arifazola/red-john/module"
+	"github.com/google/uuid"
 )
 
 type Server struct {
 	inMemoryStore *module.InMemoryStore
+	ServerID string
 	Addr, LeaderAddr, Role  string
 	RaftData *models.RaftData
+	Term int
 	timer *time.Timer
 	followerMut sync.Mutex
 	followers []*models.Follower
+	nodes map[string]*models.Node
 }
 
 func(server *Server) StartServer(context context.Context) {
 	fmt.Println("Start server as: ", server.Role)
 	ln, err := net.Listen("tcp", ":"+server.Addr)
+
+	serverID := uuid.New().String()
+	server.ServerID = serverID
+	server.nodes = make(map[string]*models.Node)
+
+	node := models.Node{
+		Address: server.Addr,
+		Role: server.Role,
+	}
+	server.nodes[serverID] = &node
 
 	if err != nil {
 		fmt.Println("error listening network ", err)
@@ -127,16 +141,33 @@ func(server *Server) handleConnection(connection net.Conn) {
 		msg = strings.TrimSpace(msg)
 		if msg == ""{continue}
 
-		if(msg == "SYNC_ME"){
+		var messageModel models.Message
+
+		err = json.Unmarshal([]byte(msg), &messageModel)
+
+		// if err != nil {
+		// 	fmt.Println("Error parsing message", err)
+		// 	return
+		// }
+
+
+		if(err == nil){
 			// connection.Write([]byte("YOU ARE SYNCED\n"))
 			fmt.Println("Sending data to follower")
 			server.followerMut.Lock()
+			var nodeModel models.Node
+
+			err = json.Unmarshal([]byte(messageModel.Data), &nodeModel)
+
+			server.nodes[server.ServerID] = &nodeModel
+			
 			server.SendSnapshotToFollower(connection)
 			follower := models.Follower{
 				Conn: connection,
 				Ch: make(chan string),
 				LastSeen: time.Now(),
 			}
+
 			server.followers = append(server.followers, &follower)
 			shouldCloseConnection = false
 			server.followerMut.Unlock()
@@ -404,7 +435,31 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 
 		reader := bufio.NewReader(conn)
 
-		_, writeError := conn.Write([]byte("SYNC_ME\n"))
+		nodeModel := models.Node{
+			ID: server.ServerID,
+			Address: server.Addr,
+			Role: server.Role,
+		}
+
+		stringifyNode, err := json.Marshal(nodeModel)
+
+		if err != nil {
+			fmt.Println("Error parsing node model", err)
+			return
+		}
+
+		messageModel := models.Message{
+			Message: "SYNC_ME",
+			Data: string(stringifyNode),
+		}
+
+		stringifyMessageModel, err := json.Marshal(messageModel)
+
+		if err != nil {
+			fmt.Println("Error parsing message model", err)
+		}
+
+		_, writeError := conn.Write([]byte(string(stringifyMessageModel) + "\n"))
 
 		if writeError != nil {
 			fmt.Println("error writing message ", writeError)
