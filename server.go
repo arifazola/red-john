@@ -515,6 +515,12 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 		}
 
 		go func ()  {
+			<-context.Done()
+			fmt.Println("Destroying follower connection")
+			conn.Close()
+		}()
+
+		go func ()  {
 			server.StartElectionTimer(context, conn)
 		}()
 
@@ -588,13 +594,16 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 	
 	for {
 		fmt.Println("Election timer start with interval:", server.RaftData.ElectionInterval)
+		select{
+		case <-context.Done():
+			fmt.Println("Received cancellation context. Stopping election timer")
+			return
+		case <-server.timer.C:
+			fmt.Println("Should start election")
+			//Start election implementation
 
-		<-server.timer.C
-		
-		fmt.Println("Should start election")
-		//Start election implementation
-
-		server.Role = enums.RoleLeader
-		return
+			server.Role = enums.RoleLeader
+			return
+		}
 	}
 }
