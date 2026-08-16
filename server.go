@@ -29,6 +29,7 @@ type Server struct {
 	timer *time.Timer
 	followerMut sync.Mutex
 	followers []*models.Follower
+	nodesMut sync.Mutex
 	nodes map[string]*models.Node
 }
 
@@ -154,14 +155,15 @@ func(server *Server) handleConnection(connection net.Conn) {
 		if(err == nil){
 			// connection.Write([]byte("YOU ARE SYNCED\n"))
 			fmt.Println("Sending data to follower")
-			server.followerMut.Lock()
+			server.nodesMut.Lock()
 			var nodeModel models.Node
 
 			err = json.Unmarshal([]byte(messageModel.Data), &nodeModel)
 
 			server.nodes[nodeModel.ID] = &nodeModel
+			server.nodesMut.Unlock()
 
-			server.SendSnapshotToFollower(connection)
+			server.followerMut.Lock()
 			follower := models.Follower{
 				Conn: connection,
 				Ch: make(chan string),
@@ -172,6 +174,8 @@ func(server *Server) handleConnection(connection net.Conn) {
 			shouldCloseConnection = false
 			server.followerMut.Unlock()
 
+			server.SendSnapshotToFollower(connection)
+			server.UpdateFollowersNodes()
 			server.FollowerListener(&follower)
 			return;
 		}
@@ -292,29 +296,7 @@ func(server *Server) SendSnapshotToFollower(conn net.Conn) error {
 		return err
 	}
 
-	nodeData, err := server.serializeNodes()
-
-	if err != nil {
-		fmt.Println("serialize error ", err)
-		return err
-	}
-
-	nodeMessageModel := models.Message{
-		Message: "NODES",
-		Data: nodeData,
-	}
-
-	stringifyNodesMessageModel, err := json.Marshal(nodeMessageModel)
-
-	if err != nil {
-		fmt.Println("Error parsing in memory message model", err)
-		return err
-	}
-
-	fmt.Println("Sending nodes data to follower", string(stringifyNodesMessageModel))
-
 	conn.Write([]byte(string(stringifyInMemoryMessageModel) + "\n"))
-	conn.Write([]byte(string(stringifyNodesMessageModel) + "\n"))
 
 	return nil
 }
@@ -336,8 +318,8 @@ func(server *Server) serializeInMemoryData() (string, error){
 }
 
 func(server *Server) serializeNodes() (string, error){
-	server.inMemoryStore.Mut.Lock()
-	defer server.inMemoryStore.Mut.Unlock()
+	server.nodesMut.Lock()
+	defer server.nodesMut.Unlock()
 
 	data := server.nodes
 
@@ -400,6 +382,38 @@ func(server *Server) BroadcastToFollowers(command string) bool{
 	}
 
 	return false
+}
+
+func(server *Server) UpdateFollowersNodes(){
+	server.followerMut.Lock()
+	followers := make([]*models.Follower, len(server.followers))
+	copy(followers, server.followers)
+	server.followerMut.Unlock()
+
+	for _, item := range followers{
+		go func (follower *models.Follower)  {
+			nodeData, err := server.serializeNodes()
+
+			if err != nil {
+				fmt.Println("serialize error ", err)
+			}
+
+			nodeMessageModel := models.Message{
+				Message: "NODES",
+				Data: nodeData,
+			}
+
+			stringifyNodesMessageModel, err := json.Marshal(nodeMessageModel)
+
+			if err != nil {
+				fmt.Println("Error parsing in memory message model", err)
+			}
+
+			fmt.Println("Sending nodes data to follower", string(stringifyNodesMessageModel))
+
+			follower.Conn.Write([]byte(string(stringifyNodesMessageModel) + "\n"))
+		}(item)
+	}
 }
 
 func (server *Server) StartHeartbeatLoop() {
