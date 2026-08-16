@@ -39,6 +39,7 @@ func main() {
 	raftData := models.RaftData{
 		ElectionInterval: rangeNum,
 		Role: role,
+		Term: 1,
 	}
 	serverID := uuid.New().String()
 	server := Server{

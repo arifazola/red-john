@@ -1,6 +1,7 @@
 package enums
 
 const (
-	RoleLeader   = "LEADER"
-	RoleFollower = "FOLLOWER"
+	RoleLeader    = "LEADER"
+	RoleFollower  = "FOLLOWER"
+	RoleCandidate = "CANDIDATE"
 )

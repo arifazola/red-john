@@ -560,15 +560,32 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 
 				switch event.Message{
 				case "SYNC_IN_MEMORY":
+					var payloadString string
+					err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+					if err != nil {
+						fmt.Println("Error parsing event payload nodes to string", err)
+					}
+
 					var parsedJson map[string]models.Item
 
-					_ = json.Unmarshal(event.Payload, &parsedJson)
+					_ = json.Unmarshal([]byte(payloadString), &parsedJson)
 					fmt.Println("Syncing")
 					server.inMemoryStore.SetAll(parsedJson)
 					fmt.Println("Finished syncing data")
 				case "NODES":
+					var payloadString string
+					err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+					if err != nil {
+						fmt.Println("Error parsing event payload nodes to string", err)
+					}
+					
 					var nodes map[string]*models.Node
-					_ = json.Unmarshal(event.Payload, &nodes)
+					fmt.Println("EVENT PAYLOAD", string(event.Payload))
+					err = json.Unmarshal([]byte(payloadString), &nodes)
+
+					if err != nil {
+						fmt.Println("Error parsing event payload nodes", err)
+					}
 					server.nodes = nodes
 				}
 			}
@@ -602,8 +619,47 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			fmt.Println("Should start election")
 			//Start election implementation
 
-			server.Role = enums.RoleLeader
+			server.Role = enums.RoleCandidate
+			server.RaftData.Term++
+			server.RaftData.VotedFor = server.ServerID
+			server.ResetElectionTimer()
+			fmt.Println("Should send request votes")
+			// requestVote := models.RequestVoteRequest{
+			// 	Term: server.RaftData.Term,
+			// 	CandidateID: server.ServerID,
+			// }
+
+			for _, item := range server.nodes{
+				// address := server.nodes[id].Address
+				if(item.Role == enums.RoleLeader){
+					continue
+				}
+				
+				if(item.ID == server.ServerID){
+					continue
+				}
+				
+				fmt.Println("Sending Request Vote", item.Address)
+				server.SendRequestVote(item.Address)
+			}
 			return
 		}
 	}
+}
+
+func (server *Server) SendRequestVote(address string){
+	conn, err := net.Dial("tcp", ":"+address)
+
+	if err != nil {
+		fmt.Println("REQUEST VOTE ERROR: Cannot connect to node", err, address)
+		return
+	}
+
+	_, writeError := conn.Write([]byte("VOTE ME" + "\n"))
+
+	if writeError != nil {
+		fmt.Println("error writing message ", writeError)
+		conn.Close() 
+	}
+
 }
