@@ -154,30 +154,56 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 		if(err == nil){
 			// connection.Write([]byte("YOU ARE SYNCED\n"))
-			fmt.Println("Sending data to follower")
-			server.nodesMut.Lock()
-			var nodeModel models.Node
+			if(messageModel.Message == "VOTE_ME"){
+				shouldCloseConnection = false
+				fmt.Println("Follower asking for vote")
+				var requestVoteRequest models.RequestVoteRequest
+				err := json.Unmarshal([]byte(messageModel.Data), &requestVoteRequest)
 
-			err = json.Unmarshal([]byte(messageModel.Data), &nodeModel)
+				if err != nil {
+					fmt.Println("Error parsing request vote request", err)
+				}
 
-			server.nodes[nodeModel.ID] = &nodeModel
-			server.nodesMut.Unlock()
+				server.HandleElection(requestVoteRequest)
 
-			server.followerMut.Lock()
-			follower := models.Follower{
-				Conn: connection,
-				Ch: make(chan string),
-				LastSeen: time.Now(),
+				fmt.Println("Sending vote response back")
+				_, err = connection.Write([]byte("RESPONSE VOTE GRANTED\n"))
+
+				if err != nil {
+					fmt.Println("Cannot send vote granted response")
+					return
+				}
+
+				fmt.Println("BLAAA")
+
+				return
+			} else {
+
+				fmt.Println("Sending data to follower")
+				server.nodesMut.Lock()
+				var nodeModel models.Node
+	
+				err = json.Unmarshal([]byte(messageModel.Data), &nodeModel)
+	
+				server.nodes[nodeModel.ID] = &nodeModel
+				server.nodesMut.Unlock()
+	
+				server.followerMut.Lock()
+				follower := models.Follower{
+					Conn: connection,
+					Ch: make(chan string),
+					LastSeen: time.Now(),
+				}
+	
+				server.followers = append(server.followers, &follower)
+				shouldCloseConnection = false
+				server.followerMut.Unlock()
+	
+				server.SendSnapshotToFollower(connection)
+				server.UpdateFollowersNodes()
+				server.FollowerListener(&follower)
+				return;
 			}
-
-			server.followers = append(server.followers, &follower)
-			shouldCloseConnection = false
-			server.followerMut.Unlock()
-
-			server.SendSnapshotToFollower(connection)
-			server.UpdateFollowersNodes()
-			server.FollowerListener(&follower)
-			return;
 		}
 
 		commands := module.TextTokenizer(msg)
@@ -618,10 +644,10 @@ func (server *Server) ResetElectionTimer(){
 
 func (server *Server) StartElectionTimer(context context.Context, conn net.Conn){
 	fmt.Println(">>> StartElectionTimer CALLED")
-	min, max := 4000, 10000
+	min, max := 4, 10
 	rangeNum := rand.IntN(max-min+1) + min
 	server.RaftData.ElectionInterval = rangeNum 
-	server.timer = time.NewTimer(time.Duration(server.RaftData.ElectionInterval) * time.Millisecond)
+	server.timer = time.NewTimer(time.Duration(server.RaftData.ElectionInterval) * time.Second)
 	
 	for {
 		fmt.Println("Election timer start with interval:", server.RaftData.ElectionInterval)
@@ -633,15 +659,12 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			fmt.Println("Should start election")
 			//Start election implementation
 
+			fmt.Println("Follower term before send", server.RaftData.Term)
 			server.Role = enums.RoleCandidate
 			server.RaftData.Term++
 			server.RaftData.VotedFor = server.ServerID
 			server.ResetElectionTimer()
 			fmt.Println("Should send request votes")
-			// requestVote := models.RequestVoteRequest{
-			// 	Term: server.RaftData.Term,
-			// 	CandidateID: server.ServerID,
-			// }
 
 			for _, item := range server.nodes{
 				// address := server.nodes[id].Address
@@ -669,11 +692,64 @@ func (server *Server) SendRequestVote(address string){
 		return
 	}
 
-	_, writeError := conn.Write([]byte("VOTE ME" + "\n"))
+	requestVote := models.RequestVoteRequest{
+		Term: server.RaftData.Term,
+		CandidateID: server.ServerID,
+	}
+
+	stringifyRequestVote, err := json.Marshal(requestVote)
+
+	if err != nil {
+		fmt.Println("Error stringify request vote", err)
+		return
+	}
+
+	messageModel := models.Message {
+		Message: "VOTE_ME",
+		Data: string(stringifyRequestVote),
+	}
+
+	stringifyMessageModel, err := json.Marshal(messageModel)
+
+	if err != nil {
+		fmt.Println("Error stringify message model", err)
+		return
+	}
+
+	_, writeError := conn.Write([]byte(string(stringifyMessageModel) + "\n"))
 
 	if writeError != nil {
 		fmt.Println("error writing message ", writeError)
 		conn.Close() 
 	}
 
+}
+
+func (server *Server) HandleElection(request models.RequestVoteRequest) bool{
+	if(request.Term < server.RaftData.Term){
+		fmt.Println("Vote rejected")
+	}
+
+	fmt.Println("server's term", server.RaftData.Term)
+	fmt.Println("request's term", request.Term)
+
+	if(request.Term > server.RaftData.Term){
+		server.RaftData.Term = request.Term
+		server.Role = enums.RoleFollower
+		server.RaftData.VotedFor = ""
+
+		fmt.Println("Update term, role, and voted for")
+	}
+
+	fmt.Println("This server has voted for", server.RaftData.VotedFor)
+
+	if(server.RaftData.VotedFor == "" || server.RaftData.VotedFor == request.CandidateID){
+		server.RaftData.VotedFor = request.CandidateID
+
+		server.ResetElectionTimer()
+		return true
+	} else {
+		fmt.Println("Vote rejected")
+		return false
+	}
 }
