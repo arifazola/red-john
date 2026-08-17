@@ -5,4 +5,5 @@ type RaftData struct {
 	Role             string
 	Term             int
 	VotedFor         string
+	TotalVote        int
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand/v2"
 	"net"
 	"os"
@@ -24,6 +25,7 @@ type Server struct {
 	inMemoryStore *module.InMemoryStore
 	ServerID string
 	Addr, LeaderAddr, Role  string
+	raftDataMut sync.Mutex
 	RaftData *models.RaftData
 	Term int
 	timer *time.Timer
@@ -164,17 +166,25 @@ func(server *Server) handleConnection(connection net.Conn) {
 					fmt.Println("Error parsing request vote request", err)
 				}
 
-				server.HandleElection(requestVoteRequest)
+				isVoteGranted := server.HandleElection(requestVoteRequest)
 
-				fmt.Println("Sending vote response back")
-				_, err = connection.Write([]byte("RESPONSE VOTE GRANTED\n"))
+				requestVoteResponse := models.RequestVoteResponse{
+					Term: requestVoteRequest.Term,
+					VoteGranted: isVoteGranted,
+				}
+
+				stringifyResponse, err := json.Marshal(requestVoteResponse)
+				if err != nil {
+					fmt.Println("Error stringify requset vote response", err)
+					return
+				}
+
+				_, err = connection.Write([]byte(string(stringifyResponse) + "\n"))
 
 				if err != nil {
 					fmt.Println("Cannot send vote granted response")
 					return
 				}
-
-				fmt.Println("BLAAA")
 
 				return
 			} else {
@@ -449,9 +459,10 @@ func (server *Server) StartHeartbeatLoop() {
         for range ticker.C {
             server.followerMut.Lock()
             for _, f := range server.followers {
+				fmt.Println("SENDING PING COMMAND")
                 _, err := f.Conn.Write([]byte("PING\n"))
                 if err != nil {
-                    fmt.Println("Ping failed for follower:", f.Conn.RemoteAddr())
+                    fmt.Println("Ping failed for follower:", err)
                 }
             }
             server.followerMut.Unlock()
@@ -573,65 +584,125 @@ func(server *Server) ConnectToLeader(leaderAddr string, context context.Context)
 				i = maxNumOfRetry
 				break //break to get out of this inner loop and retry
 			}
+			
+			server.HandleCommandFromLeader(msg, conn)
 
-			fmt.Println("Command from leader", msg)
+			// fmt.Println("Command from leader", msg)
 
-			var event models.Event
-			jsonErr := json.Unmarshal([]byte(msg), &event)
+			// var event models.Event
+			// jsonErr := json.Unmarshal([]byte(msg), &event)
 
-			//check if parsing the message from leader throws an error
-			//if message cannot be parsed, then it's a command (SET or GET)
-			//if message can be parsed, then it's a syncing data. Follower must store data from leader to it's own inMemoryStore
-			if jsonErr != nil {
-				commands := strings.Fields(msg)
+			// //check if parsing the message from leader throws an error
+			// //if message cannot be parsed, then it's a command (SET or GET)
+			// //if message can be parsed, then it's a syncing data. Follower must store data from leader to it's own inMemoryStore
+			// if jsonErr != nil {
+			// 	commands := strings.Fields(msg)
 				
-				if commands[0] == "PING"{
-					server.ResetElectionTimer()
-					conn.Write([]byte("PONG\n"))
-					continue
-				}
+			// 	if commands[0] == "PING"{
+			// 		server.ResetElectionTimer()
+			// 		conn.Write([]byte("PONG\n"))
+			// 		continue
+			// 	}
 
-				fmt.Println("Adding command for followers", commands)
-				result, _ := module.CommandRouter(commands, server.inMemoryStore, "")
+			// 	fmt.Println("Adding command for followers", commands)
+			// 	result, _ := module.CommandRouter(commands, server.inMemoryStore, "")
 
-				fmt.Println("client command result ", result)
-				conn.Write([]byte("STORED\n"))
-			} else {
+			// 	fmt.Println("client command result ", result)
+			// 	conn.Write([]byte("STORED\n"))
+			// } else {
 
-				switch event.Message{
-				case "SYNC_IN_MEMORY":
-					var payloadString string
-					err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
-					if err != nil {
-						fmt.Println("Error parsing event payload nodes to string", err)
-					}
+			// 	switch event.Message{
+			// 	case "SYNC_IN_MEMORY":
+			// 		var payloadString string
+			// 		err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+			// 		if err != nil {
+			// 			fmt.Println("Error parsing event payload nodes to string", err)
+			// 		}
 
-					var parsedJson map[string]models.Item
+			// 		var parsedJson map[string]models.Item
 
-					_ = json.Unmarshal([]byte(payloadString), &parsedJson)
-					fmt.Println("Syncing")
-					server.inMemoryStore.SetAll(parsedJson)
-					fmt.Println("Finished syncing data")
-				case "NODES":
-					var payloadString string
-					err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
-					if err != nil {
-						fmt.Println("Error parsing event payload nodes to string", err)
-					}
+			// 		_ = json.Unmarshal([]byte(payloadString), &parsedJson)
+			// 		fmt.Println("Syncing")
+			// 		server.inMemoryStore.SetAll(parsedJson)
+			// 		fmt.Println("Finished syncing data")
+			// 	case "NODES":
+			// 		var payloadString string
+			// 		err = json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+			// 		if err != nil {
+			// 			fmt.Println("Error parsing event payload nodes to string", err)
+			// 		}
 					
-					var nodes map[string]*models.Node
-					fmt.Println("EVENT PAYLOAD", string(event.Payload))
-					err = json.Unmarshal([]byte(payloadString), &nodes)
+			// 		var nodes map[string]*models.Node
+			// 		fmt.Println("EVENT PAYLOAD", string(event.Payload))
+			// 		err = json.Unmarshal([]byte(payloadString), &nodes)
 
-					if err != nil {
-						fmt.Println("Error parsing event payload nodes", err)
-					}
-					server.nodes = nodes
-				}
-			}
+			// 		if err != nil {
+			// 			fmt.Println("Error parsing event payload nodes", err)
+			// 		}
+			// 		server.nodes = nodes
+			// 	}
+			// }
 		}
 	}
 
+}
+
+func(server *Server) HandleCommandFromLeader(msg string, conn net.Conn){
+	fmt.Println("Command from leader", msg)
+
+	var event models.Event
+	jsonErr := json.Unmarshal([]byte(msg), &event)
+
+	//check if parsing the message from leader throws an error
+	//if message cannot be parsed, then it's a command (SET or GET)
+	//if message can be parsed, then it's a syncing data. Follower must store data from leader to it's own inMemoryStore
+	if jsonErr != nil {
+		commands := strings.Fields(msg)
+		
+		if commands[0] == "PING"{
+			server.ResetElectionTimer()
+			conn.Write([]byte("PONG\n"))
+			return
+		}
+
+		fmt.Println("Adding command for followers", commands)
+		result, _ := module.CommandRouter(commands, server.inMemoryStore, "")
+
+		fmt.Println("client command result ", result)
+		conn.Write([]byte("STORED\n"))
+	} else {
+
+		switch event.Message{
+		case "SYNC_IN_MEMORY":
+			var payloadString string
+			err := json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+			if err != nil {
+				fmt.Println("Error parsing event payload nodes to string", err)
+			}
+
+			var parsedJson map[string]models.Item
+
+			_ = json.Unmarshal([]byte(payloadString), &parsedJson)
+			fmt.Println("Syncing")
+			server.inMemoryStore.SetAll(parsedJson)
+			fmt.Println("Finished syncing data")
+		case "NODES":
+			var payloadString string
+			err := json.Unmarshal([]byte(string(event.Payload)), &payloadString)
+			if err != nil {
+				fmt.Println("Error parsing event payload nodes to string", err)
+			}
+			
+			var nodes map[string]*models.Node
+			fmt.Println("EVENT PAYLOAD", string(event.Payload))
+			err = json.Unmarshal([]byte(payloadString), &nodes)
+
+			if err != nil {
+				fmt.Println("Error parsing event payload nodes", err)
+			}
+			server.nodes = nodes
+		}
+	}
 }
 
 func (server *Server) ResetElectionTimer(){
@@ -663,28 +734,45 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			server.Role = enums.RoleCandidate
 			server.RaftData.Term++
 			server.RaftData.VotedFor = server.ServerID
+			server.RaftData.TotalVote = 1
 			server.ResetElectionTimer()
 			fmt.Println("Should send request votes")
 
-			for _, item := range server.nodes{
-				// address := server.nodes[id].Address
-				if(item.Role == enums.RoleLeader){
-					continue
-				}
+			copiedNodes := make(map[string]*models.Node, len(server.nodes))
+
+			server.nodesMut.Lock()
+			copiedNodes = server.nodes
+			server.nodesMut.Unlock()
+
+			for _, item := range copiedNodes{
+				go func ()  {
+					// address := server.nodes[id].Address
+					if(item.Role == enums.RoleLeader){
+						
+					}
+					
+					if(item.ID == server.ServerID){
+						
+					}
+					
+					fmt.Println("Sending Request Vote", item.Address)
+					server.SendRequestVote(item.Address)
+					
+
+					
+					// if server.Role == enums.RoleLeader{
+					// 	fmt.Println("Won the election. Start sending heartbeat", server.Role)
+					// 	server.StartHeartbeatLoop()
+					// }	
+				}()
 				
-				if(item.ID == server.ServerID){
-					continue
-				}
-				
-				fmt.Println("Sending Request Vote", item.Address)
-				server.SendRequestVote(item.Address)
 			}
 			return
 		}
 	}
 }
 
-func (server *Server) SendRequestVote(address string){
+func (server *Server) SendRequestVote(address string) {
 	conn, err := net.Dial("tcp", ":"+address)
 
 	if err != nil {
@@ -723,6 +811,54 @@ func (server *Server) SendRequestVote(address string){
 		conn.Close() 
 	}
 
+	majority := server.GetMajority()
+
+	reader := bufio.NewReader(conn)
+
+	for {
+		msg, err := reader.ReadString('\n')
+
+		if err != nil {
+			fmt.Println("Error getting message")
+		}
+		
+		fmt.Println("MESSAGE FROM NEW LEADER", msg)
+
+		var voteResponse models.RequestVoteResponse
+		err = json.Unmarshal([]byte(msg), &voteResponse)
+
+		if err != nil {
+			fmt.Println("Error parsing vote response")
+			return
+		}
+
+		fmt.Println("VOTE RESULT", voteResponse.VoteGranted)
+
+		if voteResponse.VoteGranted {
+			server.raftDataMut.Lock()
+			server.RaftData.TotalVote ++
+			server.raftDataMut.Unlock()
+		}
+
+		if server.RaftData.TotalVote >= majority{
+			server.followerMut.Lock()
+			follower := models.Follower{
+				Conn: conn,
+				Ch: make(chan string),
+				LastSeen: time.Now(),
+			}
+
+			server.followers = append(server.followers, &follower)
+			server.followerMut.Unlock()
+			server.Role = enums.RoleLeader
+
+			server.StartHeartbeatLoop()
+		}
+
+		fmt.Println("CURRENT VOTE", server.RaftData.TotalVote)
+		fmt.Println("MAJORITY", majority)
+	}
+
 }
 
 func (server *Server) HandleElection(request models.RequestVoteRequest) bool{
@@ -752,4 +888,10 @@ func (server *Server) HandleElection(request models.RequestVoteRequest) bool{
 		fmt.Println("Vote rejected")
 		return false
 	}
+}
+
+func(server *Server) GetMajority() int{
+	nodeSize := len(server.nodes)
+	majority := math.Floor(float64(nodeSize) / 2) + 1
+	return int(majority)
 }
