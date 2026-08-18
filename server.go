@@ -224,6 +224,10 @@ func(server *Server) handleConnection(connection net.Conn) {
 			os.Exit(1) // Immediate exit, no defers run
 		}
 
+		if commands[0] == "PING"{
+			server.HandleCommandFromLeader(msg, connection)
+		}
+
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
 			fmt.Println("Broadcasting SET command to followers")
 			module.LogCommand(msg)
@@ -459,7 +463,7 @@ func (server *Server) StartHeartbeatLoop() {
         for range ticker.C {
             server.followerMut.Lock()
             for _, f := range server.followers {
-				fmt.Println("SENDING PING COMMAND")
+				fmt.Println("SENDING PING COMMAND", len(server.followers))
                 _, err := f.Conn.Write([]byte("PING\n"))
                 if err != nil {
                     fmt.Println("Ping failed for follower:", err)
@@ -780,36 +784,46 @@ func (server *Server) SendRequestVote(address string) {
 		return
 	}
 
-	requestVote := models.RequestVoteRequest{
-		Term: server.RaftData.Term,
-		CandidateID: server.ServerID,
-	}
+	// requestVote := models.RequestVoteRequest{
+	// 	Term: server.RaftData.Term,
+	// 	CandidateID: server.ServerID,
+	// }
 
-	stringifyRequestVote, err := json.Marshal(requestVote)
+	// stringifyRequestVote, err := json.Marshal(requestVote)
 
 	if err != nil {
 		fmt.Println("Error stringify request vote", err)
 		return
 	}
 
-	messageModel := models.Message {
-		Message: "VOTE_ME",
-		Data: string(stringifyRequestVote),
-	}
+	// messageModel := models.Message {
+	// 	Message: "VOTE_ME",
+	// 	Data: string(stringifyRequestVote),
+	// }
 
-	stringifyMessageModel, err := json.Marshal(messageModel)
+	// stringifyMessageModel, err := json.Marshal(messageModel)
 
 	if err != nil {
 		fmt.Println("Error stringify message model", err)
 		return
 	}
 
-	_, writeError := conn.Write([]byte(string(stringifyMessageModel) + "\n"))
+	_, writeError := conn.Write([]byte("PING\n"))
 
 	if writeError != nil {
 		fmt.Println("error writing message ", writeError)
 		conn.Close() 
 	}
+
+	server.followerMut.Lock()
+	follower := models.Follower{
+		Conn: conn,
+		Ch: make(chan string),
+		LastSeen: time.Now(),
+	}
+
+	server.followers = append(server.followers, &follower)
+	server.followerMut.Unlock()
 
 	majority := server.GetMajority()
 
@@ -823,6 +837,7 @@ func (server *Server) SendRequestVote(address string) {
 		}
 		
 		fmt.Println("MESSAGE FROM NEW LEADER", msg)
+		conn.Write([]byte("HELLO\n"))
 
 		var voteResponse models.RequestVoteResponse
 		err = json.Unmarshal([]byte(msg), &voteResponse)
@@ -841,19 +856,11 @@ func (server *Server) SendRequestVote(address string) {
 		}
 
 		if server.RaftData.TotalVote >= majority{
-			server.followerMut.Lock()
-			follower := models.Follower{
-				Conn: conn,
-				Ch: make(chan string),
-				LastSeen: time.Now(),
-			}
-
-			server.followers = append(server.followers, &follower)
-			server.followerMut.Unlock()
 			server.Role = enums.RoleLeader
-
 			server.StartHeartbeatLoop()
+			server.FollowerListener(&follower)
 		}
+
 
 		fmt.Println("CURRENT VOTE", server.RaftData.TotalVote)
 		fmt.Println("MAJORITY", majority)
