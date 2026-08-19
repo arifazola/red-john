@@ -6,4 +6,6 @@ type RaftData struct {
 	Term             int
 	VotedFor         string
 	TotalVote        int
+	YesVote          int
+	NoVote           int
 }

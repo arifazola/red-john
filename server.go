@@ -754,6 +754,7 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			server.Role = enums.RoleCandidate
 			server.RaftData.Term++
 			server.RaftData.VotedFor = server.ServerID
+			server.RaftData.YesVote = 1
 			server.RaftData.TotalVote = 1
 			server.ResetElectionTimer()
 			fmt.Println("Should send request votes")
@@ -779,6 +780,7 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 					server.SendRequestVote(item.Address)
 
 					if server.Role == enums.RoleLeader{
+						fmt.Println("IM NEW LEADER")
 						server.SendNewLeaderNotification(item.Address)
 					}
 				}()
@@ -813,16 +815,6 @@ func (server *Server) SendRequestVote(address string) {
 	}
 
 	defer conn.Close()
-
-	// server.followerMut.Lock()
-	// follower := models.Follower{
-	// 	Conn: conn,
-	// 	Ch: make(chan string),
-	// 	LastSeen: time.Now(),
-	// }
-
-	// server.followers = append(server.followers, &follower)
-	// server.followerMut.Unlock()
 
 	// defer conn.Close()
 
@@ -867,12 +859,14 @@ func (server *Server) SendRequestVote(address string) {
 
 		if err != nil {
 			fmt.Println("Error getting message")
+			return
 		}
 		
 		fmt.Println("MESSAGE FROM NEW LEADER", msg)
 
 		if writeError != nil {
 			fmt.Println("ERROR SENDING PING", err)
+			return
 		}
 
 		var voteResponse models.RequestVoteResponse
@@ -880,7 +874,7 @@ func (server *Server) SendRequestVote(address string) {
 
 		if err != nil {
 			fmt.Println("Error parsing vote response")
-			// return
+			return
 		}
 
 		fmt.Println("VOTE RESULT", voteResponse.VoteGranted)
@@ -888,21 +882,31 @@ func (server *Server) SendRequestVote(address string) {
 		if voteResponse.VoteGranted {
 			server.raftDataMut.Lock()
 			server.RaftData.TotalVote ++
+			server.RaftData.YesVote ++
 			server.raftDataMut.Unlock()
+		} else {
+			server.RaftData.TotalVote ++
+			server.RaftData.NoVote ++
 		}
 
 		fmt.Println("CURRENT VOTE", server.RaftData.TotalVote)
 		fmt.Println("MAJORITY", majority)
 
-		if server.RaftData.TotalVote >= majority{
+		if server.RaftData.YesVote >= majority{
 			server.Role = enums.RoleLeader
 			server.StartHeartbeatLoop()
+			fmt.Println("<><><><><> ELECTION COMPLETED", server.Role)
 			// fmt.Println("SENDING PING AFTER VOTE")
 			// _, writeError := conn.Write([]byte("FHDJSFHJDSFHJDSH\n"))
 			// if writeError != nil {
 			// 	fmt.Println("ERROR SENDING PING", err)
 			// }
 			// // server.FollowerListener(&follower)
+			return
+		}
+
+		if server.RaftData.TotalVote >= majority || server.RaftData.TotalVote == len(server.nodes){
+			fmt.Println("<><><><><> ELECTION COMPLETED", server.Role)
 			return
 		}
 	}
@@ -951,12 +955,23 @@ func(server *Server) GetMajority() int{
 }
 
 func (server *Server) SendNewLeaderNotification(address string){
+	fmt.Println("Sending New Leader Notification To: ", address)
 	conn, err := net.Dial("tcp", ":"+address)
 
 	if err != nil {
 		fmt.Println("REQUEST VOTE ERROR: Cannot connect to node", err, address)
 		return
 	}
+
+	server.followerMut.Lock()
+	follower := models.Follower{
+		Conn: conn,
+		Ch: make(chan string),
+		LastSeen: time.Now(),
+	}
+
+	server.followers = append(server.followers, &follower)
+	server.followerMut.Unlock()
 
 	messageModel := models.Message {
 		Message: "NEW_LEADER",
