@@ -84,7 +84,7 @@ func(server *Server) StartServer(context context.Context) {
 
 		fmt.Println("connected")
 
-		go server.handleConnection(conn)
+		go server.handleConnection(conn, context)
 	}
 }
 
@@ -113,7 +113,7 @@ func(server *Server) SyncLocalData() error{
 	return nil
 }
 
-func(server *Server) handleConnection(connection net.Conn) {
+func(server *Server) handleConnection(connection net.Conn, context context.Context) {
 	shouldCloseConnection := true //flag
 	defer func ()  {
 		if shouldCloseConnection{
@@ -198,6 +198,10 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 				// return
 				continue
+			} else if messageModel.Message == "NEW_LEADER"{
+				server.ResetElectionTimer()
+				server.Role = enums.RoleFollower
+				server.ConnectToLeader(":"+messageModel.Data, context)
 			} else {
 
 				fmt.Println("Sending data to follower")
@@ -761,20 +765,39 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			server.nodesMut.Unlock()
 
 			for _, item := range copiedNodes{
+				if(item.Role == enums.RoleLeader){
+					continue
+				}
+				
+				if(item.ID == server.ServerID){
+					continue
+				}
 				go func ()  {
 					// address := server.nodes[id].Address
-					if(item.Role == enums.RoleLeader){
-						
-					}
-					
-					if(item.ID == server.ServerID){
-						
-					}
 					
 					fmt.Println("Sending Request Vote", item.Address)
 					server.SendRequestVote(item.Address)
+
+					if server.Role == enums.RoleLeader{
+						server.SendNewLeaderNotification(item.Address)
+					}
 				}()
 			}
+
+			// if server.Role == enums.RoleLeader{
+			// 	copiedFollower := make([]*models.Follower, len(server.followers))
+			// 	server.followerMut.Lock()
+			// 	copiedFollower = server.followers
+			// 	server.followerMut.Unlock()
+
+			// 	for _, item := range copiedFollower{
+			// 		go func ()  {
+						
+			// 		}
+			// 	}
+			// } else {
+			// 	server.followers = nil
+			// }
 
 			return
 		}
@@ -789,15 +812,17 @@ func (server *Server) SendRequestVote(address string) {
 		return
 	}
 
-	server.followerMut.Lock()
-	follower := models.Follower{
-		Conn: conn,
-		Ch: make(chan string),
-		LastSeen: time.Now(),
-	}
+	defer conn.Close()
 
-	server.followers = append(server.followers, &follower)
-	server.followerMut.Unlock()
+	// server.followerMut.Lock()
+	// follower := models.Follower{
+	// 	Conn: conn,
+	// 	Ch: make(chan string),
+	// 	LastSeen: time.Now(),
+	// }
+
+	// server.followers = append(server.followers, &follower)
+	// server.followerMut.Unlock()
 
 	// defer conn.Close()
 
@@ -871,19 +896,15 @@ func (server *Server) SendRequestVote(address string) {
 
 		if server.RaftData.TotalVote >= majority{
 			server.Role = enums.RoleLeader
+			server.StartHeartbeatLoop()
 			// fmt.Println("SENDING PING AFTER VOTE")
 			// _, writeError := conn.Write([]byte("FHDJSFHJDSFHJDSH\n"))
 			// if writeError != nil {
 			// 	fmt.Println("ERROR SENDING PING", err)
 			// }
 			// // server.FollowerListener(&follower)
-			break
+			return
 		}
-	}
-
-	if server.Role == enums.RoleLeader{
-		fmt.Println("New leader elected. Starting heartbeat loop")
-		server.StartHeartbeatLoop()
 	}
 
 }
@@ -891,6 +912,12 @@ func (server *Server) SendRequestVote(address string) {
 func (server *Server) HandleElection(request models.RequestVoteRequest) bool{
 	if(request.Term < server.RaftData.Term){
 		fmt.Println("Vote rejected")
+		return false
+	}
+
+	if(server.Role == enums.RoleLeader){
+		fmt.Println("Leader cannot vote for election. REJECTED")
+		return false
 	}
 
 	fmt.Println("server's term", server.RaftData.Term)
@@ -921,4 +948,29 @@ func(server *Server) GetMajority() int{
 	nodeSize := len(server.nodes)
 	majority := math.Floor(float64(nodeSize) / 2) + 1
 	return int(majority)
+}
+
+func (server *Server) SendNewLeaderNotification(address string){
+	conn, err := net.Dial("tcp", ":"+address)
+
+	if err != nil {
+		fmt.Println("REQUEST VOTE ERROR: Cannot connect to node", err, address)
+		return
+	}
+
+	messageModel := models.Message {
+		Message: "NEW_LEADER",
+		Data: server.Addr,
+	}
+
+	stringifyMessageModel, err := json.Marshal(messageModel)
+
+	if err != nil {
+		fmt.Println("Error stringify new leader notificiation", err)
+		return
+	}
+
+	conn.Write([]byte(string(stringifyMessageModel) + "\n"))
+
+	conn.Close()
 }
