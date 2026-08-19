@@ -186,7 +186,18 @@ func(server *Server) handleConnection(connection net.Conn) {
 					return
 				}
 
-				return
+				// for {
+				// 	newMsg, err := reader.ReadString('\n')
+
+				// 	if err != nil {
+				// 		fmt.Println("Error reading message vote")
+				// 	}
+
+				// 	fmt.Println("PING MESSAGE NEW", newMsg)
+				// }
+
+				// return
+				continue
 			} else {
 
 				fmt.Println("Sending data to follower")
@@ -226,6 +237,7 @@ func(server *Server) handleConnection(connection net.Conn) {
 
 		if commands[0] == "PING"{
 			server.HandleCommandFromLeader(msg, connection)
+			continue
 		}
 
 		if server.Role == enums.RoleLeader && commands[0] == "SET" {
@@ -761,16 +773,9 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 					
 					fmt.Println("Sending Request Vote", item.Address)
 					server.SendRequestVote(item.Address)
-					
-
-					
-					// if server.Role == enums.RoleLeader{
-					// 	fmt.Println("Won the election. Start sending heartbeat", server.Role)
-					// 	server.StartHeartbeatLoop()
-					// }	
 				}()
-				
 			}
+
 			return
 		}
 	}
@@ -784,37 +789,6 @@ func (server *Server) SendRequestVote(address string) {
 		return
 	}
 
-	// requestVote := models.RequestVoteRequest{
-	// 	Term: server.RaftData.Term,
-	// 	CandidateID: server.ServerID,
-	// }
-
-	// stringifyRequestVote, err := json.Marshal(requestVote)
-
-	if err != nil {
-		fmt.Println("Error stringify request vote", err)
-		return
-	}
-
-	// messageModel := models.Message {
-	// 	Message: "VOTE_ME",
-	// 	Data: string(stringifyRequestVote),
-	// }
-
-	// stringifyMessageModel, err := json.Marshal(messageModel)
-
-	if err != nil {
-		fmt.Println("Error stringify message model", err)
-		return
-	}
-
-	_, writeError := conn.Write([]byte("PING\n"))
-
-	if writeError != nil {
-		fmt.Println("error writing message ", writeError)
-		conn.Close() 
-	}
-
 	server.followerMut.Lock()
 	follower := models.Follower{
 		Conn: conn,
@@ -824,6 +798,40 @@ func (server *Server) SendRequestVote(address string) {
 
 	server.followers = append(server.followers, &follower)
 	server.followerMut.Unlock()
+
+	// defer conn.Close()
+
+	requestVote := models.RequestVoteRequest{
+		Term: server.RaftData.Term,
+		CandidateID: server.ServerID,
+	}
+
+	stringifyRequestVote, err := json.Marshal(requestVote)
+
+	if err != nil {
+		fmt.Println("Error stringify request vote", err)
+		return
+	}
+
+	messageModel := models.Message {
+		Message: "VOTE_ME",
+		Data: string(stringifyRequestVote),
+	}
+
+	stringifyMessageModel, err := json.Marshal(messageModel)
+
+	if err != nil {
+		fmt.Println("Error stringify message model", err)
+		return
+	}
+
+	_, writeError := conn.Write([]byte(string(stringifyMessageModel) + "\n"))
+	// _, writeError := conn.Write([]byte("PING\n"))
+
+	if writeError != nil {
+		fmt.Println("error writing message ", writeError)
+		conn.Close() 
+	}
 
 	majority := server.GetMajority()
 
@@ -837,14 +845,17 @@ func (server *Server) SendRequestVote(address string) {
 		}
 		
 		fmt.Println("MESSAGE FROM NEW LEADER", msg)
-		conn.Write([]byte("HELLO\n"))
+
+		if writeError != nil {
+			fmt.Println("ERROR SENDING PING", err)
+		}
 
 		var voteResponse models.RequestVoteResponse
 		err = json.Unmarshal([]byte(msg), &voteResponse)
 
 		if err != nil {
 			fmt.Println("Error parsing vote response")
-			return
+			// return
 		}
 
 		fmt.Println("VOTE RESULT", voteResponse.VoteGranted)
@@ -855,15 +866,24 @@ func (server *Server) SendRequestVote(address string) {
 			server.raftDataMut.Unlock()
 		}
 
-		if server.RaftData.TotalVote >= majority{
-			server.Role = enums.RoleLeader
-			server.StartHeartbeatLoop()
-			server.FollowerListener(&follower)
-		}
-
-
 		fmt.Println("CURRENT VOTE", server.RaftData.TotalVote)
 		fmt.Println("MAJORITY", majority)
+
+		if server.RaftData.TotalVote >= majority{
+			server.Role = enums.RoleLeader
+			// fmt.Println("SENDING PING AFTER VOTE")
+			// _, writeError := conn.Write([]byte("FHDJSFHJDSFHJDSH\n"))
+			// if writeError != nil {
+			// 	fmt.Println("ERROR SENDING PING", err)
+			// }
+			// // server.FollowerListener(&follower)
+			break
+		}
+	}
+
+	if server.Role == enums.RoleLeader{
+		fmt.Println("New leader elected. Starting heartbeat loop")
+		server.StartHeartbeatLoop()
 	}
 
 }
