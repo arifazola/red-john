@@ -2,9 +2,9 @@
 
 ---
 
-Red John is a lightweight cache built for Windows. It's purpose is similar to Redis, which is to store key value data in memory.
+Red John is a lightweight in-memory data storage built for Windows. It's purpose is similar to Redis, which is to store key value data in memory.
 
-It's good if you are developing an app on Windows and need to store data in memory and doesn't want to be bothered installing Redis whether on Docker or VMs
+It's good if you are developing an app on Windows and need to store data in memory and don't want to be bothered installing Redis whether on Docker or VMs
 
 # How To Run
 1. Clone this project
