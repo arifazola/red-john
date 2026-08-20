@@ -765,25 +765,62 @@ func (server *Server) StartElectionTimer(context context.Context, conn net.Conn)
 			copiedNodes = server.nodes
 			server.nodesMut.Unlock()
 
+			var wg sync.WaitGroup
 			for _, item := range copiedNodes{
+				wg.Add(1)
 				if(item.Role == enums.RoleLeader){
+					fmt.Println("ENUM LEADER. SKIP")
+					wg.Done()
+					fmt.Println("ENUM LEADER. DONE")
 					continue
 				}
 				
 				if(item.ID == server.ServerID){
+					fmt.Println("SAME SERVER ID. SKIP")
+					wg.Done()
+					fmt.Println("SAME SERVER ID. DONE")
 					continue
 				}
+
 				go func ()  {
 					// address := server.nodes[id].Address
-					
+					defer func ()  {
+						fmt.Println(":) :) :)  ABOUT TO WG DONE")
+						wg.Done()
+						fmt.Println(":) :) :)  WG DONE EXECUTED")
+					}()
 					fmt.Println("Sending Request Vote", item.Address)
 					server.SendRequestVote(item.Address)
-
-					if server.Role == enums.RoleLeader{
-						fmt.Println("IM NEW LEADER")
-						server.SendNewLeaderNotification(item.Address)
-					}
+					fmt.Println("<><><> EXIT SEND REQUEST VOTE")
+					// if server.Role == enums.RoleLeader{
+					// 	fmt.Println("IM NEW LEADER")
+					// 	server.SendNewLeaderNotification(item.Address)
+					// }
 				}()
+			}
+
+			fmt.Println(">>>>>>>>> BEFORE WAIT")
+			wg.Wait()
+
+			fmt.Println("Vote completed", server.Role)
+
+			if server.Role == enums.RoleLeader{
+				for _, item := range copiedNodes{
+					if(item.Role == enums.RoleLeader){
+						continue
+					}
+					
+					if(item.ID == server.ServerID){
+						continue
+					}
+					
+					go func ()  {
+						// address := server.nodes[id].Address
+						fmt.Println("Sending New Leader Notification", item.Address)
+						server.SendNewLeaderNotification(item.Address)
+						fmt.Println("<><><> EXIT SEND NEW LEADER NOTIFICATION")
+					}()
+				}
 			}
 
 			// if server.Role == enums.RoleLeader{
@@ -814,7 +851,10 @@ func (server *Server) SendRequestVote(address string) {
 		return
 	}
 
-	defer conn.Close()
+	defer func ()  {
+		fmt.Println("<><> DEFER FUNCTION SEND REQUEST VOTE FOR ADDRESS", address)
+		conn.Close()
+	}()
 
 	// defer conn.Close()
 
@@ -859,14 +899,14 @@ func (server *Server) SendRequestVote(address string) {
 
 		if err != nil {
 			fmt.Println("Error getting message")
-			return
+			break
 		}
 		
 		fmt.Println("MESSAGE FROM NEW LEADER", msg)
 
 		if writeError != nil {
 			fmt.Println("ERROR SENDING PING", err)
-			return
+			break
 		}
 
 		var voteResponse models.RequestVoteResponse
@@ -874,10 +914,10 @@ func (server *Server) SendRequestVote(address string) {
 
 		if err != nil {
 			fmt.Println("Error parsing vote response")
-			return
+			break
 		}
 
-		fmt.Println("VOTE RESULT", voteResponse.VoteGranted)
+		fmt.Println("VOTE RESULT FROM ADDRESS: ", address, voteResponse.VoteGranted)
 
 		if voteResponse.VoteGranted {
 			server.raftDataMut.Lock()
@@ -902,12 +942,18 @@ func (server *Server) SendRequestVote(address string) {
 			// 	fmt.Println("ERROR SENDING PING", err)
 			// }
 			// // server.FollowerListener(&follower)
-			return
+			break
 		}
 
 		if server.RaftData.TotalVote >= majority || server.RaftData.TotalVote == len(server.nodes){
 			fmt.Println("<><><><><> ELECTION COMPLETED", server.Role)
-			return
+			break
+		}
+
+		//LAST CONDITION TO CHECK IF THIS INSTANCE HAS VOTED
+		if err == nil {
+			fmt.Println("<><> THIS INSTANCE HAS VOTED", address)
+			break
 		}
 	}
 
